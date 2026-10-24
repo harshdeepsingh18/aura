@@ -1,13 +1,20 @@
+import getpass
 import json
+import ipaddress
+import logging
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 import threading
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -16,14 +23,66 @@ HISTORY_FILE = DATA_DIR / "history.json"
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("PORT", "3000"))
 MAX_REQUEST_BYTES = 4096
-MAX_COMMAND_LENGTH = 200
+MAX_CHAT_REQUEST_BYTES = 128 * 1024
 HISTORY_LIMIT = 50
+MAX_CHAT_MESSAGES = 12
+MAX_CHAT_MESSAGE_LENGTH = 2000
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_API_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    f"{GEMINI_MODEL}:generateContent"
+)
 HISTORY_LOCK = threading.Lock()
+PENDING_ACTIONS_LOCK = threading.Lock()
+PENDING_ACTION_TTL_SECONDS = 120
+pending_actions = {}
 
 ALLOWED_APPS = {
     "notepad": ("notepad.exe", "Notepad"),
     "calculator": ("calc.exe", "Calculator"),
 }
+GEMINI_TOOLS = [
+    {
+        "functionDeclarations": [
+            {
+                "name": "open_website",
+                "description": "Propose opening a normal public HTTPS website when directly asked.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "url": {
+                            "type": "STRING",
+                            "description": "The full HTTPS URL of the public website to open.",
+                        }
+                    },
+                    "required": ["url"],
+                },
+            },
+            {
+                "name": "launch_app",
+                "description": "Propose opening an explicitly allowlisted desktop app when directly asked.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "app": {
+                            "type": "STRING",
+                            "enum": sorted(ALLOWED_APPS),
+                            "description": "The exact allowlisted app identifier.",
+                        }
+                    },
+                    "required": ["app"],
+                },
+            },
+        ]
+    }
+]
+GEMINI_SYSTEM_INSTRUCTION = (
+    "You are Aura, a helpful conversational voice assistant. Answer general questions "
+    "naturally and clearly. You have no live web access, so be honest about that. "
+    "You may propose opening a website only when the user explicitly asks to open or visit "
+    "one, and may propose launching Notepad or Calculator only when explicitly requested. "
+    "Never claim an action has already happened. The user must approve every proposed action."
+)
 
 
 def read_history():
@@ -71,59 +130,136 @@ def launch_allowed_app(app_name):
     return f"{label} is opening."
 
 
-def process_command(raw_command):
-    command = raw_command.strip()
-    normalized = re.sub(r"[.!?]+$", "", command.lower()).strip()
+def issue_action_confirmation(app_name):
+    token = secrets.token_urlsafe(24)
+    now = time.monotonic()
+    with PENDING_ACTIONS_LOCK:
+        expired_tokens = [
+            existing_token
+            for existing_token, (_, expires_at) in pending_actions.items()
+            if expires_at <= now
+        ]
+        for expired_token in expired_tokens:
+            del pending_actions[expired_token]
+        pending_actions[token] = (app_name, now + PENDING_ACTION_TTL_SECONDS)
+    return token
 
+
+def consume_action_confirmation(token):
+    if not isinstance(token, str):
+        return None
+    with PENDING_ACTIONS_LOCK:
+        action = pending_actions.pop(token, None)
+    if action is None or action[1] <= time.monotonic():
+        return None
+    return action[0]
+
+
+def validate_public_https_url(raw_url):
+    if not isinstance(raw_url, str) or len(raw_url) > 2048:
+        raise ValueError("Aura can only open a valid public HTTPS website.")
+    try:
+        parsed = urlparse(raw_url)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("Aura can only open a valid public HTTPS website.") from error
     if (
-        re.search(r"\b(open|go to|visit|launch)\b.*\byoutube\b", normalized)
-        or normalized == "youtube"
+        parsed.scheme != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or not parsed.netloc
     ):
-        return {
-            "message": "Opening YouTube in a new tab.",
-            "action": {"type": "open-url", "url": "https://www.youtube.com/"},
+        raise ValueError("Aura can only open a valid public HTTPS website.")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        if "." not in hostname or hostname.endswith("."):
+            raise ValueError("Aura can only open a public website.")
+    else:
+        if not address.is_global:
+            raise ValueError("Aura cannot open local or private network addresses.")
+    return parsed.geturl()
+
+
+def generate_gemini_reply(messages):
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Gemini is not configured. Set the GEMINI_API_KEY environment variable.")
+
+    contents = [
+        {
+            "role": "model" if message["role"] == "assistant" else "user",
+            "parts": [{"text": message["content"]}],
         }
-
-    if (
-        re.search(r"\b(play|start)\b.*\b(music|song|songs)\b", normalized)
-        or normalized == "music"
-    ):
-        return {
-            "message": "Opening music on YouTube.",
-            "action": {
-                "type": "open-url",
-                "url": "https://www.youtube.com/results?search_query=music",
-            },
-        }
-
-    if re.match(r"^(search|google|look up)\b", normalized):
-        query = re.sub(r"^(search for|search|google|look up)\s*", "", command, flags=re.I).strip()
-        if not query:
-            return {"message": "Tell me what you want to search for."}
-        return {
-            "message": f"Searching for {query}.",
-            "action": {
-                "type": "open-url",
-                "url": f"https://www.google.com/search?q={quote(query, safe='')}",
-            },
-        }
-
-    if re.search(r"\b(time|clock)\b", normalized):
-        current_time = datetime.now().astimezone().strftime("%I:%M %p").lstrip("0")
-        return {"message": f"It is {current_time}."}
-
-    app_match = re.fullmatch(
-        r"(?:please\s+)?(?:open|launch|start)\s+(notepad|calculator)(?:\s+app)?",
-        normalized,
-    )
-    if app_match:
-        return {"message": launch_allowed_app(app_match.group(1))}
-
-    return {
-        "message": (
-            "I don't know that command yet. Try YouTube, music, search, Notepad, or Calculator."
-        )
+        for message in messages
+    ]
+    payload = {
+        "systemInstruction": {"parts": [{"text": GEMINI_SYSTEM_INSTRUCTION}]},
+        "contents": contents,
+        "tools": GEMINI_TOOLS,
+        "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024},
     }
+    request = Request(
+        GEMINI_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            result = json.loads(response.read())
+    except HTTPError as error:
+        raise RuntimeError(f"Gemini API returned HTTP {error.code}. Check your API key and model.") from None
+    except (URLError, TimeoutError) as error:
+        raise RuntimeError(f"Could not connect to Gemini: {error}") from None
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Gemini returned an invalid response.") from error
+
+    try:
+        parts = result["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError) as error:
+        raise RuntimeError("Gemini did not return a usable answer. Try asking another way.") from error
+
+    reply_parts = [part["text"] for part in parts if isinstance(part.get("text"), str)]
+    reply = "\n".join(reply_parts).strip()
+    action = None
+    for part in parts:
+        function_call = part.get("functionCall")
+        if not isinstance(function_call, dict):
+            continue
+        arguments = function_call.get("args", {})
+        if not isinstance(arguments, dict):
+            continue
+        if function_call.get("name") == "open_website":
+            try:
+                action = {
+                    "type": "open-url",
+                    "url": validate_public_https_url(arguments.get("url")),
+                }
+            except ValueError:
+                reply = reply or "I can't open that address. Aura only opens public HTTPS websites."
+        elif function_call.get("name") == "launch_app":
+            app_name = arguments.get("app")
+            if isinstance(app_name, str) and app_name in ALLOWED_APPS:
+                action = {"type": "launch-app", "app": app_name}
+
+    if action and not reply:
+        if action["type"] == "open-url":
+            reply = f"Would you like me to open {action['url']}?"
+        else:
+            reply = f"Would you like me to open {ALLOWED_APPS[action['app']][1]}?"
+    if action:
+        reply = f"{reply}\n\nI haven't done this yet. Approve below to continue."
+    if not reply:
+        reply = "I couldn't create a text answer. Please try asking again."
+    return {"reply": reply, "action": action}
 
 
 class AuraRequestHandler(BaseHTTPRequestHandler):
@@ -160,7 +296,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
                 return False
         return True
 
-    def _read_json_body(self):
+    def _read_json_body(self, max_bytes=MAX_REQUEST_BYTES):
         content_type = self.headers.get("Content-Type", "")
         if content_type.split(";", 1)[0].strip().lower() != "application/json":
             self._send_json(400, {"error": "Send a command as JSON using the command field."})
@@ -172,7 +308,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "A valid Content-Length header is required."})
             return None
 
-        if content_length < 1 or content_length > MAX_REQUEST_BYTES:
+        if content_length < 1 or content_length > max_bytes:
             self._send_json(413, {"error": "Request body is empty or too large."})
             return None
 
@@ -188,6 +324,15 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             return
 
         route = urlparse(self.path).path
+        if route == "/api/status":
+            self._send_json(
+                200,
+                {
+                    "geminiConfigured": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
+                    "model": GEMINI_MODEL,
+                },
+            )
+            return
         if route == "/api/history":
             try:
                 with HISTORY_LOCK:
@@ -226,45 +371,84 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._request_is_local():
             return
-        if urlparse(self.path).path != "/api/commands":
+        route = urlparse(self.path).path
+        if route not in ("/api/chat", "/api/actions"):
             self._send_json(404, {"error": "Not found."})
             return
 
-        body = self._read_json_body()
+        if route == "/api/chat":
+            self._handle_chat()
+            return
+        self._handle_action()
+
+    def _handle_chat(self):
+        body = self._read_json_body(MAX_CHAT_REQUEST_BYTES)
         if body is None:
             return
-        if not isinstance(body, dict) or not isinstance(body.get("command"), str):
-            self._send_json(400, {"error": "Send a command as JSON using the command field."})
+        messages = body.get("messages") if isinstance(body, dict) else None
+        if not isinstance(messages, list) or not 1 <= len(messages) <= MAX_CHAT_MESSAGES:
+            self._send_json(400, {"error": "Send up to 12 chat messages ending with your message."})
             return
-
-        command = body["command"].strip()
-        if not command or len(command) > MAX_COMMAND_LENGTH:
-            self._send_json(400, {"error": "A command must contain 1 to 200 characters."})
+        for message in messages:
+            if (
+                not isinstance(message, dict)
+                or message.get("role") not in ("user", "assistant")
+                or not isinstance(message.get("content"), str)
+                or not message["content"].strip()
+                or len(message["content"]) > MAX_CHAT_MESSAGE_LENGTH
+            ):
+                self._send_json(400, {"error": "Each chat message must have a valid role and text."})
+                return
+        if messages[-1]["role"] != "user":
+            self._send_json(400, {"error": "The most recent chat message must be from you."})
             return
 
         try:
-            result = process_command(command)
-            with HISTORY_LOCK:
+            result = generate_gemini_reply(messages)
+        except RuntimeError as error:
+            self._send_json(503, {"error": str(error)})
+            return
+        if result["action"] and result["action"]["type"] == "launch-app":
+            result["action"]["confirmationToken"] = issue_action_confirmation(result["action"]["app"])
+
+        user_text = messages[-1]["content"].strip()
+        with HISTORY_LOCK:
+            try:
                 history = read_history()
                 history.insert(
                     0,
                     {
-                        "command": command,
+                        "command": user_text,
                         "createdAt": datetime.now().astimezone().isoformat(),
-                        "message": result["message"],
+                        "message": result["reply"],
                     },
                 )
                 write_history(history[:HISTORY_LIMIT])
-        except OSError as error:
-            self.log_error("Could not complete command: %s", error)
-            self._send_json(500, {"error": "The server could not complete the command."})
-            return
-        except (ValueError, json.JSONDecodeError):
-            self.log_error("Could not read command history.")
-            self._send_json(500, {"error": "Could not read command history."})
-            return
+            except (OSError, ValueError, json.JSONDecodeError):
+                self.log_error("Could not save chat history.")
+                self._send_json(500, {"error": "Could not save chat history."})
+                return
 
         self._send_json(200, result)
+
+    def _handle_action(self):
+        body = self._read_json_body()
+        if body is None:
+            return
+        if not isinstance(body, dict):
+            self._send_json(400, {"error": "A valid confirmation token is required."})
+            return
+        app_name = consume_action_confirmation(body.get("confirmationToken"))
+        if app_name is None:
+            self._send_json(403, {"error": "This action was not approved or its confirmation expired."})
+            return
+        try:
+            message = launch_allowed_app(app_name)
+        except OSError:
+            self.log_error("Could not launch an allowlisted app.")
+            self._send_json(500, {"error": "Could not launch that app."})
+            return
+        self._send_json(200, {"message": message})
 
     def do_DELETE(self):
         if not self._request_is_local():
@@ -289,8 +473,17 @@ class LocalHTTPServer(ThreadingHTTPServer):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     if not 1 <= PORT <= 65535:
         raise ValueError("PORT must be a valid TCP port number.")
+
+    if not os.environ.get("GEMINI_API_KEY", "").strip():
+        try:
+            api_key = getpass.getpass("Gemini API key (input hidden; Enter to skip): ").strip()
+        except EOFError:
+            api_key = ""
+        if api_key:
+            os.environ["GEMINI_API_KEY"] = api_key
 
     server = LocalHTTPServer((HOST, PORT), AuraRequestHandler)
     print(f"Aura is running at http://{HOST}:{PORT}")

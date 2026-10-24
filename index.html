@@ -11,8 +11,8 @@
   <main class="app">
     <header>
       <div class="brand"><span class="brand-mark"></span> Aura voice assistant</div>
-      <h1>Your voice.<br>One command away.</h1>
-      <p class="subtitle">Tell Aura what you want to do. Start with a voice command or type one below.</p>
+      <h1>Talk to Aura.</h1>
+      <p class="subtitle">Ask questions, brainstorm, get help, or request an action. Aura uses Gemini for its replies.</p>
     </header>
 
     <div class="orb-wrap" id="orbWrap" aria-hidden="true">
@@ -26,27 +26,32 @@
     </div>
 
     <div class="status" id="status" role="status" aria-live="polite">Ready when you are</div>
-    <div class="transcript" id="transcript">Try saying “open YouTube”</div>
+    <div class="transcript" id="transcript">Try asking anything, or say “open YouTube”</div>
+    <p class="setup-note" id="setupNote" role="status">Checking Gemini setup…</p>
 
     <div class="controls">
       <button class="primary" id="listenButton" type="button">Start listening</button>
       <button class="secondary" id="stopButton" type="button" disabled>Stop</button>
     </div>
 
+    <section class="chat" aria-label="Conversation">
+      <div id="chatMessages" class="chat-messages" aria-live="polite">
+        <p class="chat-empty">Your conversation with Aura will appear here.</p>
+      </div>
+    </section>
+
     <form class="command-form" id="commandForm">
-      <input id="commandInput" type="text" autocomplete="off" placeholder="Or type a command…" aria-label="Type a command">
-      <button class="send" type="submit">Run command</button>
+      <input id="commandInput" type="text" maxlength="2000" autocomplete="off" placeholder="Ask Aura anything…" aria-label="Message Aura">
+      <button class="send" type="submit">Send</button>
     </form>
 
     <section class="examples" aria-label="Command examples">
-      <p class="section-label">Try saying</p>
+      <p class="section-label">Try asking</p>
       <div class="quick-list">
-        <button class="quick" type="button" data-command="open YouTube">▶ Open YouTube</button>
-        <button class="quick" type="button" data-command="play music">♫ Play music</button>
-        <button class="quick" type="button" data-command="search for relaxing music">⌕ Search the web</button>
-        <button class="quick" type="button" data-command="what time is it">◷ What time is it?</button>
-        <button class="quick" type="button" data-command="open notepad">Open Notepad</button>
-        <button class="quick" type="button" data-command="open calculator">Open Calculator</button>
+        <button class="quick" type="button" data-command="Explain something interesting about space">Explain something</button>
+        <button class="quick" type="button" data-command="Help me plan my day">Plan my day</button>
+        <button class="quick" type="button" data-command="Open YouTube">Open YouTube</button>
+        <button class="quick" type="button" data-command="Open Notepad">Open Notepad</button>
       </div>
     </section>
     <section class="history" aria-label="Recent commands">
@@ -58,7 +63,7 @@
         <li class="history-empty">Loading command history…</li>
       </ul>
     </section>
-    <footer>Voice input needs microphone permission and works best in Chrome or Edge.<br>Run Aura on your own computer. Only Notepad and Calculator are enabled as desktop apps.</footer>
+    <footer>Voice input works best in Chrome or Edge. Aura asks before opening a website or launching an app.<br>Chat needs your own Gemini API key, configured privately on this computer.</footer>
   </main>
 
   <script src="script.js" defer></script>
