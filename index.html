@@ -45,9 +45,20 @@
         <button class="quick" type="button" data-command="play music">♫ Play music</button>
         <button class="quick" type="button" data-command="search for relaxing music">⌕ Search the web</button>
         <button class="quick" type="button" data-command="what time is it">◷ What time is it?</button>
+        <button class="quick" type="button" data-command="open notepad">Open Notepad</button>
+        <button class="quick" type="button" data-command="open calculator">Open Calculator</button>
       </div>
     </section>
-    <footer>Voice input needs microphone permission and works best in Chrome or Edge.<br>Aura opens websites in a new tab; it cannot control other apps or your device.</footer>
+    <section class="history" aria-label="Recent commands">
+      <div class="history-heading">
+        <p class="section-label">Recent commands</p>
+        <button class="clear-history" id="clearHistoryButton" type="button">Clear</button>
+      </div>
+      <ul id="historyList" class="history-list" aria-live="polite">
+        <li class="history-empty">Loading command history…</li>
+      </ul>
+    </section>
+    <footer>Voice input needs microphone permission and works best in Chrome or Edge.<br>Run Aura on your own computer. Only Notepad and Calculator are enabled as desktop apps.</footer>
   </main>
 
   <script src="script.js" defer></script>

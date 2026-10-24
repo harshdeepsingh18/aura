@@ -1,136 +1,190 @@
 const statusText = document.getElementById("status");
-    const transcript = document.getElementById("transcript");
-    const listenButton = document.getElementById("listenButton");
-    const stopButton = document.getElementById("stopButton");
-    const orbWrap = document.getElementById("orbWrap");
-    const commandInput = document.getElementById("commandInput");
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognition;
-    let voiceTab = null;
+const transcript = document.getElementById("transcript");
+const listenButton = document.getElementById("listenButton");
+const stopButton = document.getElementById("stopButton");
+const orbWrap = document.getElementById("orbWrap");
+const commandInput = document.getElementById("commandInput");
+const historyList = document.getElementById("historyList");
+const clearHistoryButton = document.getElementById("clearHistoryButton");
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition;
+let voiceTab = null;
 
-    function openUrl(url) {
-      if (voiceTab && !voiceTab.closed) {
-        voiceTab.location.href = url;
-        voiceTab = null;
-        return true;
-      }
-      return Boolean(window.open(url, "_blank", "noopener,noreferrer"));
-    }
+function prepareVoiceTab() {
+  voiceTab = window.open("about:blank", "_blank");
+}
 
-    function setListening(isListening) {
-      orbWrap.classList.toggle("listening", isListening);
-      listenButton.disabled = isListening;
-      stopButton.disabled = !isListening;
-      statusText.textContent = isListening ? "Listening…" : "Ready when you are";
-    }
+function closeVoiceTab() {
+  if (voiceTab && !voiceTab.closed) voiceTab.close();
+  voiceTab = null;
+}
 
-    function speak(message) {
-      if ("speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance(message));
-      }
-    }
+function openUrl(url) {
+  const parsedUrl = new URL(url);
+  const allowedHosts = new Set(["youtube.com", "www.youtube.com", "google.com", "www.google.com"]);
+  if (parsedUrl.protocol !== "https:" || !allowedHosts.has(parsedUrl.hostname)) {
+    throw new Error("The server returned an unsupported website address.");
+  }
 
-    function runCommand(rawCommand) {
-      const command = rawCommand.trim();
-      if (!command) return;
+  if (voiceTab && !voiceTab.closed) {
+    voiceTab.location.href = parsedUrl.href;
+    voiceTab = null;
+    return true;
+  }
+  return Boolean(window.open(parsedUrl.href, "_blank", "noopener,noreferrer"));
+}
 
-      transcript.textContent = `You said: “${command}”`;
-      const normalized = command.toLowerCase().replace(/[.!?]+$/g, "").trim();
-      statusText.textContent = "Working on it…";
+function setListening(isListening) {
+  orbWrap.classList.toggle("listening", isListening);
+  listenButton.disabled = isListening;
+  stopButton.disabled = !isListening;
+  if (isListening) statusText.textContent = "Listening…";
+  else if (statusText.textContent === "Listening…") statusText.textContent = "Ready when you are";
+}
 
-      if (/\b(open|go to|visit|launch)\b.*\byoutube\b/.test(normalized) || normalized === "youtube") {
-        speak("Opening YouTube");
-        statusText.textContent = openUrl("https://www.youtube.com/")
-          ? "Opening YouTube in a new tab"
-          : "Pop-up blocked. Allow pop-ups to open YouTube.";
-      } else if (/\b(play|start)\b.*\b(music|song|songs)\b/.test(normalized) || normalized === "music") {
-        speak("Opening music");
-        statusText.textContent = openUrl("https://www.youtube.com/results?search_query=music")
-          ? "Opening music on YouTube"
-          : "Pop-up blocked. Allow pop-ups to open music.";
-      } else if (/\b(time|clock)\b/.test(normalized)) {
-        if (voiceTab && !voiceTab.closed) voiceTab.close();
-        voiceTab = null;
-        const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date());
-        statusText.textContent = `It is ${time}`;
-        speak(`It is ${time}`);
-      } else if (/^(search|google|look up)\b/.test(normalized)) {
-        const query = command.replace(/^(search for|search|google|look up)\s*/i, "").trim();
-        if (!query) {
-          if (voiceTab && !voiceTab.closed) voiceTab.close();
-          voiceTab = null;
-          statusText.textContent = "Tell me what you want to search for";
-          speak("Tell me what you want to search for");
-          return;
-        }
-        speak(`Searching for ${query}`);
-        statusText.textContent = openUrl(`https://www.google.com/search?q=${encodeURIComponent(query)}`)
-          ? `Searching for “${query}”`
-          : "Pop-up blocked. Allow pop-ups to open search results.";
-      } else {
-        if (voiceTab && !voiceTab.closed) voiceTab.close();
-        voiceTab = null;
-        statusText.textContent = "I don't know that command yet";
-        speak("Sorry, I don't know that command yet. Try opening YouTube, playing music, or searching the web.");
-      }
-    }
+function speak(message) {
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(message));
+  }
+}
 
-    if (SpeechRecognition) {
-      recognition = new SpeechRecognition();
-      recognition.lang = navigator.language || "en-US";
-      recognition.continuous = false;
-      recognition.interimResults = false;
+function renderHistory(entries) {
+  historyList.replaceChildren();
+  if (entries.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "history-empty";
+    empty.textContent = "No commands yet.";
+    historyList.append(empty);
+    return;
+  }
 
-      recognition.onstart = () => setListening(true);
-      recognition.onend = () => {
-        setListening(false);
-        if (voiceTab && !voiceTab.closed) voiceTab.close();
-        voiceTab = null;
-      };
-      recognition.onresult = (event) => {
-        const spokenCommand = event.results[0][0].transcript;
-        runCommand(spokenCommand);
-      };
-      recognition.onerror = (event) => {
-        setListening(false);
-        const messages = {
-          "not-allowed": "Microphone access was blocked. Allow it in your browser settings.",
-          "no-speech": "I didn't hear anything. Please try again.",
-          "audio-capture": "No microphone was found."
-        };
-        statusText.textContent = messages[event.error] || `Voice recognition error: ${event.error}`;
-        if (voiceTab && !voiceTab.closed) voiceTab.close();
-        voiceTab = null;
-      };
-      listenButton.addEventListener("click", () => {
-        voiceTab = window.open("about:blank", "_blank");
-        try {
-          recognition.start();
-        } catch (error) {
-          if (voiceTab && !voiceTab.closed) voiceTab.close();
-          voiceTab = null;
-          statusText.textContent = `Unable to start voice recognition: ${error.message}`;
-        }
-      });
-      stopButton.addEventListener("click", () => {
-        if (voiceTab && !voiceTab.closed) voiceTab.close();
-        voiceTab = null;
-        recognition.stop();
-      });
+  entries.forEach((entry) => {
+    const item = document.createElement("li");
+    item.className = "history-item";
+    item.append(document.createTextNode(entry.command));
+    const time = document.createElement("time");
+    time.dateTime = entry.createdAt;
+    time.textContent = new Date(entry.createdAt).toLocaleString();
+    item.append(time);
+    historyList.append(item);
+  });
+}
+
+async function loadHistory() {
+  const response = await fetch("/api/history");
+  if (!response.ok) throw new Error("Could not load command history.");
+  const data = await response.json();
+  renderHistory(data.history);
+}
+
+async function runCommand(rawCommand) {
+  const command = rawCommand.trim();
+  if (!command) {
+    closeVoiceTab();
+    return;
+  }
+
+  transcript.textContent = `You said: “${command}”`;
+  statusText.textContent = "Working on it…";
+
+  try {
+    const response = await fetch("/api/commands", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "The command could not be processed.");
+
+    if (data.action && data.action.type === "open-url") {
+      const opened = openUrl(data.action.url);
+      statusText.textContent = opened ? data.message : "Pop-up blocked. Allow pop-ups to open that website.";
     } else {
-      listenButton.disabled = true;
-      statusText.textContent = "Voice recognition is not supported in this browser";
-      transcript.textContent = "Try Chrome or Edge, or type a command below.";
+      closeVoiceTab();
+      statusText.textContent = data.message;
     }
+    speak(data.message);
+    await loadHistory();
+  } catch (error) {
+    closeVoiceTab();
+    statusText.textContent = `Backend error: ${error.message}`;
+  }
+}
 
-    document.getElementById("commandForm").addEventListener("submit", (event) => {
-      event.preventDefault();
-      runCommand(commandInput.value);
-      commandInput.value = "";
-      commandInput.focus();
-    });
+if (SpeechRecognition) {
+  recognition = new SpeechRecognition();
+  recognition.lang = navigator.language || "en-US";
+  recognition.continuous = false;
+  recognition.interimResults = false;
 
-    document.querySelectorAll("[data-command]").forEach((button) => {
-      button.addEventListener("click", () => runCommand(button.dataset.command));
-    });
+  recognition.onstart = () => setListening(true);
+  recognition.onend = () => setListening(false);
+  recognition.onresult = (event) => runCommand(event.results[0][0].transcript);
+  recognition.onerror = (event) => {
+    setListening(false);
+    const messages = {
+      "not-allowed": "Microphone access was blocked. Allow it in your browser settings.",
+      "no-speech": "I didn't hear anything. Please try again.",
+      "audio-capture": "No microphone was found."
+    };
+    statusText.textContent = messages[event.error] || `Voice recognition error: ${event.error}`;
+    closeVoiceTab();
+  };
+
+  listenButton.addEventListener("click", () => {
+    prepareVoiceTab();
+    try {
+      recognition.start();
+    } catch (error) {
+      closeVoiceTab();
+      statusText.textContent = `Unable to start voice recognition: ${error.message}`;
+    }
+  });
+  stopButton.addEventListener("click", () => {
+    closeVoiceTab();
+    recognition.stop();
+  });
+} else {
+  listenButton.disabled = true;
+  statusText.textContent = "Voice recognition is not supported in this browser";
+  transcript.textContent = "Try Chrome or Edge, or type a command below.";
+}
+
+document.getElementById("commandForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  prepareVoiceTab();
+  const command = commandInput.value;
+  commandInput.value = "";
+  commandInput.focus();
+  runCommand(command);
+});
+
+document.querySelectorAll("[data-command]").forEach((button) => {
+  button.addEventListener("click", () => {
+    prepareVoiceTab();
+    runCommand(button.dataset.command);
+  });
+});
+
+clearHistoryButton.addEventListener("click", async () => {
+  clearHistoryButton.disabled = true;
+  try {
+    const response = await fetch("/api/history", { method: "DELETE" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not clear command history.");
+    renderHistory([]);
+  } catch (error) {
+    statusText.textContent = `Backend error: ${error.message}`;
+  } finally {
+    clearHistoryButton.disabled = false;
+  }
+});
+
+loadHistory().catch((error) => {
+  historyList.replaceChildren();
+  const item = document.createElement("li");
+  item.className = "history-empty";
+  item.textContent = error.message;
+  historyList.append(item);
+});
