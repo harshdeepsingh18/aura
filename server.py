@@ -216,7 +216,15 @@ def generate_gemini_reply(messages):
         with urlopen(request, timeout=30) as response:
             result = json.loads(response.read())
     except HTTPError as error:
-        raise RuntimeError(f"Gemini API returned HTTP {error.code}. Check your API key and model.") from None
+        try:
+            error_body = json.loads(error.read())
+            api_message = error_body.get("error", {}).get("message")
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            api_message = None
+        if not isinstance(api_message, str) or not api_message.strip():
+            api_message = "Google did not provide details."
+        api_message = " ".join(api_message.split())[:500]
+        raise RuntimeError(f"Gemini API error (HTTP {error.code}): {api_message}") from None
     except (URLError, TimeoutError) as error:
         raise RuntimeError(f"Could not connect to Gemini: {error}") from None
     except json.JSONDecodeError as error:

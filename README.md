@@ -13,6 +13,7 @@ Aura is a local website with a Python backend and a Gemini-powered chat. Python'
 5. Open `http://127.0.0.1:3000` in Chrome or Edge and allow microphone access to use voice chat.
 
 Aura uses Google's Gemini API over HTTPS. The default model is `gemini-3.8-flash`; set `GEMINI_MODEL` before starting the server if you want to choose another available model.
+If Gemini reports an API error, Aura displays Google's response details without displaying your key. Check the key in Google AI Studio and the model name if the message says either is invalid.
 
 Keep the terminal running while you use Aura. Do not open `index.html` directly: the website needs the backend server, and the microphone/browser behavior works best from the local server URL.
 
