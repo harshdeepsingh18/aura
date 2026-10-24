@@ -2,7 +2,6 @@ import json
 import ipaddress
 import logging
 import os
-import re
 import secrets
 import subprocess
 import tempfile
@@ -18,42 +17,17 @@ from urllib.request import Request, urlopen
 
 ROOT_DIR = Path(__file__).resolve().parent
 
-
-def load_local_environment():
-    env_file = ROOT_DIR / ".env"
-    if not env_file.exists():
-        return
-
-    for line_number, raw_line in enumerate(env_file.read_text(encoding="utf-8").splitlines(), start=1):
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        key, separator, value = line.partition("=")
-        key = key.strip()
-        if not separator or key not in ("XAI_API_KEY", "XAI_MODEL"):
-            raise ValueError(
-                f"Invalid .env entry on line {line_number}. Use XAI_API_KEY=... or XAI_MODEL=..."
-            )
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-        if key not in os.environ:
-            os.environ[key] = value
-
-
-load_local_environment()
-
 DATA_DIR = ROOT_DIR / "data"
 HISTORY_FILE = DATA_DIR / "history.json"
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("PORT", "3000"))
+OLLAMA_URL = "http://127.0.0.1:11434"
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:4b")
 MAX_REQUEST_BYTES = 4096
 MAX_CHAT_REQUEST_BYTES = 128 * 1024
 HISTORY_LIMIT = 50
 MAX_CHAT_MESSAGES = 12
 MAX_CHAT_MESSAGE_LENGTH = 2000
-XAI_MODEL = os.environ.get("XAI_MODEL", "grok-4.7")
-XAI_API_URL = "https://api.x.ai/v1/chat/completions"
 HISTORY_LOCK = threading.Lock()
 PENDING_ACTIONS_LOCK = threading.Lock()
 PENDING_ACTION_TTL_SECONDS = 120
@@ -63,7 +37,7 @@ ALLOWED_APPS = {
     "notepad": ("notepad.exe", "Notepad"),
     "calculator": ("calc.exe", "Calculator"),
 }
-XAI_TOOLS = [
+OLLAMA_TOOLS = [
     {
         "type": "function",
         "function": {
@@ -102,7 +76,7 @@ XAI_TOOLS = [
         },
     },
 ]
-XAI_SYSTEM_INSTRUCTION = (
+SYSTEM_INSTRUCTION = (
     "You are Aura, a helpful conversational voice assistant. Answer general questions "
     "naturally and clearly. You have no live web access, so be honest about that. "
     "You may propose opening a website only when the user explicitly asks to open or visit "
@@ -210,7 +184,7 @@ def validate_public_https_url(raw_url):
     return parsed.geturl()
 
 
-def extract_api_error_message(error_body, api_key):
+def extract_service_error_message(error_body):
     try:
         decoded_body = error_body.decode("utf-8", errors="replace").strip()
     except AttributeError:
@@ -221,11 +195,9 @@ def extract_api_error_message(error_body, api_key):
     except json.JSONDecodeError:
         parsed_body = None
 
-    message_fields = ("message", "detail", "error_description", "error", "title")
-
     def find_message(value):
         if isinstance(value, dict):
-            for field in message_fields:
+            for field in ("message", "detail", "error", "title"):
                 field_value = value.get(field)
                 if isinstance(field_value, str) and field_value.strip():
                     return field_value
@@ -240,57 +212,72 @@ def extract_api_error_message(error_body, api_key):
                     return found
         return None
 
-    message = find_message(parsed_body) if parsed_body is not None else None
+    message = find_message(parsed_body) if parsed_body is not None else decoded_body
     if not message:
-        message = decoded_body
-    if not message:
-        message = "xAI did not return an error description."
-
-    message = message.replace(api_key, "[API key redacted]") if api_key else message
-    message = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", message)
-    message = " ".join(message.split())[:500]
-    return message
+        message = "The local AI service did not return an error description."
+    return " ".join(message.split())[:500]
 
 
-def generate_grok_reply(messages):
-    api_key = os.environ.get("XAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("Grok is not configured. Add your xAI key to XAI_API_KEY in .env.")
+def ollama_status():
+    request = Request(f"{OLLAMA_URL}/api/tags", method="GET")
+    try:
+        with urlopen(request, timeout=2) as response:
+            result = json.loads(response.read())
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+        return {
+            "aiConfigured": False,
+            "provider": "Ollama (local)",
+            "model": OLLAMA_MODEL,
+            "message": "Start Ollama, then download the model shown in the setup instructions.",
+        }
+
+    models = result.get("models", [])
+    installed = any(
+        isinstance(model, dict)
+        and model.get("name", model.get("model")) in (OLLAMA_MODEL, f"{OLLAMA_MODEL}:latest")
+        for model in models
+    )
+    return {
+        "aiConfigured": installed,
+        "provider": "Ollama (local)",
+        "model": OLLAMA_MODEL,
+        "message": (
+            "Local model is ready."
+            if installed
+            else f"Download the model by running: ollama pull {OLLAMA_MODEL}"
+        ),
+    }
+
+
+def generate_local_reply(messages):
     payload = {
-        "model": XAI_MODEL,
-        "messages": [
-            {"role": "system", "content": XAI_SYSTEM_INSTRUCTION},
-            *messages,
-        ],
-        "tools": XAI_TOOLS,
-        "tool_choice": "auto",
-        "parallel_tool_calls": False,
-        "max_completion_tokens": 1024,
+        "model": OLLAMA_MODEL,
+        "messages": [{"role": "system", "content": SYSTEM_INSTRUCTION}, *messages],
+        "tools": OLLAMA_TOOLS,
+        "stream": False,
+        "options": {"num_predict": 1024},
     }
     request = Request(
-        XAI_API_URL,
+        f"{OLLAMA_URL}/api/chat",
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
+        headers={"Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=300) as response:
             result = json.loads(response.read())
     except HTTPError as error:
-        api_message = extract_api_error_message(error.read(), api_key)
-        raise RuntimeError(f"Grok API error (HTTP {error.code}): {api_message}") from None
+        service_message = extract_service_error_message(error.read())
+        raise RuntimeError(f"Ollama error (HTTP {error.code}): {service_message}") from None
     except (URLError, TimeoutError) as error:
-        raise RuntimeError(f"Could not connect to Grok: {error}") from None
+        raise RuntimeError("Could not connect to Ollama. Start the Ollama app and try again.") from error
     except json.JSONDecodeError as error:
-        raise RuntimeError("Grok returned an invalid response.") from error
+        raise RuntimeError("Ollama returned an invalid response.") from error
 
     try:
-        message = result["choices"][0]["message"]
+        message = result["message"]
     except (KeyError, IndexError, TypeError) as error:
-        raise RuntimeError("Grok did not return a usable answer. Try asking another way.") from error
+        raise RuntimeError("Ollama did not return a usable answer. Try asking another way.") from error
 
     reply = message.get("content")
     reply = reply.strip() if isinstance(reply, str) else ""
@@ -304,10 +291,12 @@ def generate_grok_reply(messages):
         function_call = tool_call.get("function", {})
         if not isinstance(function_call, dict):
             continue
-        try:
-            arguments = json.loads(function_call.get("arguments", "{}"))
-        except (json.JSONDecodeError, TypeError):
-            continue
+        arguments = function_call.get("arguments", {})
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                continue
         if not isinstance(arguments, dict):
             continue
         if function_call.get("name") == "open_website" and action is None:
@@ -400,11 +389,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         if route == "/api/status":
             self._send_json(
                 200,
-                {
-                    "aiConfigured": bool(os.environ.get("XAI_API_KEY", "").strip()),
-                    "provider": "Grok",
-                    "model": XAI_MODEL,
-                },
+                ollama_status(),
             )
             return
         if route == "/api/history":
@@ -478,7 +463,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            result = generate_grok_reply(messages)
+            result = generate_local_reply(messages)
         except RuntimeError as error:
             self._send_json(503, {"error": str(error)})
             return

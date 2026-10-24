@@ -163,11 +163,11 @@ async function loadHistory() {
 
 async function checkAiStatus() {
   const response = await fetch("/api/status");
-  if (!response.ok) throw new Error("Could not check Grok setup.");
+  if (!response.ok) throw new Error("Could not check local AI setup.");
   const data = await response.json();
   setupNote.textContent = data.aiConfigured
     ? `${data.provider} is ready (${data.model}).`
-    : "Add your xAI API key to the XAI_API_KEY line in .env, then restart Aura.";
+    : data.message;
 }
 
 async function sendChat(rawMessage) {
