@@ -161,13 +161,13 @@ async function loadHistory() {
   }
 }
 
-async function checkGeminiStatus() {
+async function checkAiStatus() {
   const response = await fetch("/api/status");
-  if (!response.ok) throw new Error("Could not check Gemini setup.");
+  if (!response.ok) throw new Error("Could not check Grok setup.");
   const data = await response.json();
-  setupNote.textContent = data.geminiConfigured
-    ? `Gemini is ready (${data.model}).`
-    : "Restart Aura and enter a Gemini API key in the terminal to enable chat.";
+  setupNote.textContent = data.aiConfigured
+    ? `${data.provider} is ready (${data.model}).`
+    : "Add your xAI API key to the XAI_API_KEY line in .env, then restart Aura.";
 }
 
 async function sendChat(rawMessage) {
@@ -272,6 +272,6 @@ clearHistoryButton.addEventListener("click", async () => {
   }
 });
 
-Promise.all([checkGeminiStatus(), loadHistory()]).catch((error) => {
+Promise.all([checkAiStatus(), loadHistory()]).catch((error) => {
   setupNote.textContent = error.message;
 });

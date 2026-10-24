@@ -1,4 +1,3 @@
-import getpass
 import json
 import ipaddress
 import logging
@@ -18,6 +17,32 @@ from urllib.request import Request, urlopen
 
 
 ROOT_DIR = Path(__file__).resolve().parent
+
+
+def load_local_environment():
+    env_file = ROOT_DIR / ".env"
+    if not env_file.exists():
+        return
+
+    for line_number, raw_line in enumerate(env_file.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        if not separator or key not in ("XAI_API_KEY", "XAI_MODEL"):
+            raise ValueError(
+                f"Invalid .env entry on line {line_number}. Use XAI_API_KEY=... or XAI_MODEL=..."
+            )
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_environment()
+
 DATA_DIR = ROOT_DIR / "data"
 HISTORY_FILE = DATA_DIR / "history.json"
 HOST = "127.0.0.1"
@@ -27,11 +52,8 @@ MAX_CHAT_REQUEST_BYTES = 128 * 1024
 HISTORY_LIMIT = 50
 MAX_CHAT_MESSAGES = 12
 MAX_CHAT_MESSAGE_LENGTH = 2000
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-GEMINI_API_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent"
-)
+XAI_MODEL = os.environ.get("XAI_MODEL", "grok-4.7")
+XAI_API_URL = "https://api.x.ai/v1/chat/completions"
 HISTORY_LOCK = threading.Lock()
 PENDING_ACTIONS_LOCK = threading.Lock()
 PENDING_ACTION_TTL_SECONDS = 120
@@ -41,42 +63,46 @@ ALLOWED_APPS = {
     "notepad": ("notepad.exe", "Notepad"),
     "calculator": ("calc.exe", "Calculator"),
 }
-GEMINI_TOOLS = [
+XAI_TOOLS = [
     {
-        "functionDeclarations": [
-            {
-                "name": "open_website",
-                "description": "Propose opening a normal public HTTPS website when directly asked.",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "url": {
-                            "type": "STRING",
-                            "description": "The full HTTPS URL of the public website to open.",
-                        }
-                    },
-                    "required": ["url"],
+        "type": "function",
+        "function": {
+            "name": "open_website",
+            "description": "Propose opening a normal public HTTPS website when directly asked.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The full HTTPS URL of the public website to open.",
+                    }
                 },
+                "required": ["url"],
+                "additionalProperties": False,
             },
-            {
-                "name": "launch_app",
-                "description": "Propose opening an explicitly allowlisted desktop app when directly asked.",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "app": {
-                            "type": "STRING",
-                            "enum": sorted(ALLOWED_APPS),
-                            "description": "The exact allowlisted app identifier.",
-                        }
-                    },
-                    "required": ["app"],
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "launch_app",
+            "description": "Propose opening an explicitly allowlisted desktop app when directly asked.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app": {
+                        "type": "string",
+                        "enum": sorted(ALLOWED_APPS),
+                        "description": "The exact allowlisted app identifier.",
+                    }
                 },
+                "required": ["app"],
+                "additionalProperties": False,
             },
-        ]
-    }
+        },
+    },
 ]
-GEMINI_SYSTEM_INSTRUCTION = (
+XAI_SYSTEM_INSTRUCTION = (
     "You are Aura, a helpful conversational voice assistant. Answer general questions "
     "naturally and clearly. You have no live web access, so be honest about that. "
     "You may propose opening a website only when the user explicitly asks to open or visit "
@@ -184,31 +210,69 @@ def validate_public_https_url(raw_url):
     return parsed.geturl()
 
 
-def generate_gemini_reply(messages):
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("Gemini is not configured. Set the GEMINI_API_KEY environment variable.")
+def extract_api_error_message(error_body, api_key):
+    try:
+        decoded_body = error_body.decode("utf-8", errors="replace").strip()
+    except AttributeError:
+        decoded_body = str(error_body).strip()
 
-    contents = [
-        {
-            "role": "model" if message["role"] == "assistant" else "user",
-            "parts": [{"text": message["content"]}],
-        }
-        for message in messages
-    ]
+    try:
+        parsed_body = json.loads(decoded_body)
+    except json.JSONDecodeError:
+        parsed_body = None
+
+    message_fields = ("message", "detail", "error_description", "error", "title")
+
+    def find_message(value):
+        if isinstance(value, dict):
+            for field in message_fields:
+                field_value = value.get(field)
+                if isinstance(field_value, str) and field_value.strip():
+                    return field_value
+            for nested_value in value.values():
+                found = find_message(nested_value)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for nested_value in value:
+                found = find_message(nested_value)
+                if found:
+                    return found
+        return None
+
+    message = find_message(parsed_body) if parsed_body is not None else None
+    if not message:
+        message = decoded_body
+    if not message:
+        message = "xAI did not return an error description."
+
+    message = message.replace(api_key, "[API key redacted]") if api_key else message
+    message = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", message)
+    message = " ".join(message.split())[:500]
+    return message
+
+
+def generate_grok_reply(messages):
+    api_key = os.environ.get("XAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Grok is not configured. Add your xAI key to XAI_API_KEY in .env.")
     payload = {
-        "systemInstruction": {"parts": [{"text": GEMINI_SYSTEM_INSTRUCTION}]},
-        "contents": contents,
-        "tools": GEMINI_TOOLS,
-        "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024},
+        "model": XAI_MODEL,
+        "messages": [
+            {"role": "system", "content": XAI_SYSTEM_INSTRUCTION},
+            *messages,
+        ],
+        "tools": XAI_TOOLS,
+        "tool_choice": "auto",
+        "parallel_tool_calls": False,
+        "max_completion_tokens": 1024,
     }
     request = Request(
-        GEMINI_API_URL,
+        XAI_API_URL,
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "x-goog-api-key": api_key,
+            "Authorization": f"Bearer {api_key}",
         },
         method="POST",
     )
@@ -216,36 +280,37 @@ def generate_gemini_reply(messages):
         with urlopen(request, timeout=30) as response:
             result = json.loads(response.read())
     except HTTPError as error:
-        try:
-            error_body = json.loads(error.read())
-            api_message = error_body.get("error", {}).get("message")
-        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
-            api_message = None
-        if not isinstance(api_message, str) or not api_message.strip():
-            api_message = "Google did not provide details."
-        api_message = " ".join(api_message.split())[:500]
-        raise RuntimeError(f"Gemini API error (HTTP {error.code}): {api_message}") from None
+        api_message = extract_api_error_message(error.read(), api_key)
+        raise RuntimeError(f"Grok API error (HTTP {error.code}): {api_message}") from None
     except (URLError, TimeoutError) as error:
-        raise RuntimeError(f"Could not connect to Gemini: {error}") from None
+        raise RuntimeError(f"Could not connect to Grok: {error}") from None
     except json.JSONDecodeError as error:
-        raise RuntimeError("Gemini returned an invalid response.") from error
+        raise RuntimeError("Grok returned an invalid response.") from error
 
     try:
-        parts = result["candidates"][0]["content"]["parts"]
+        message = result["choices"][0]["message"]
     except (KeyError, IndexError, TypeError) as error:
-        raise RuntimeError("Gemini did not return a usable answer. Try asking another way.") from error
+        raise RuntimeError("Grok did not return a usable answer. Try asking another way.") from error
 
-    reply_parts = [part["text"] for part in parts if isinstance(part.get("text"), str)]
-    reply = "\n".join(reply_parts).strip()
+    reply = message.get("content")
+    reply = reply.strip() if isinstance(reply, str) else ""
     action = None
-    for part in parts:
-        function_call = part.get("functionCall")
+    tool_calls = message.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        tool_calls = []
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        function_call = tool_call.get("function", {})
         if not isinstance(function_call, dict):
             continue
-        arguments = function_call.get("args", {})
+        try:
+            arguments = json.loads(function_call.get("arguments", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            continue
         if not isinstance(arguments, dict):
             continue
-        if function_call.get("name") == "open_website":
+        if function_call.get("name") == "open_website" and action is None:
             try:
                 action = {
                     "type": "open-url",
@@ -253,7 +318,7 @@ def generate_gemini_reply(messages):
                 }
             except ValueError:
                 reply = reply or "I can't open that address. Aura only opens public HTTPS websites."
-        elif function_call.get("name") == "launch_app":
+        elif function_call.get("name") == "launch_app" and action is None:
             app_name = arguments.get("app")
             if isinstance(app_name, str) and app_name in ALLOWED_APPS:
                 action = {"type": "launch-app", "app": app_name}
@@ -336,8 +401,9 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 200,
                 {
-                    "geminiConfigured": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
-                    "model": GEMINI_MODEL,
+                    "aiConfigured": bool(os.environ.get("XAI_API_KEY", "").strip()),
+                    "provider": "Grok",
+                    "model": XAI_MODEL,
                 },
             )
             return
@@ -412,7 +478,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            result = generate_gemini_reply(messages)
+            result = generate_grok_reply(messages)
         except RuntimeError as error:
             self._send_json(503, {"error": str(error)})
             return
@@ -484,14 +550,6 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     if not 1 <= PORT <= 65535:
         raise ValueError("PORT must be a valid TCP port number.")
-
-    if not os.environ.get("GEMINI_API_KEY", "").strip():
-        try:
-            api_key = getpass.getpass("Gemini API key (input hidden; Enter to skip): ").strip()
-        except EOFError:
-            api_key = ""
-        if api_key:
-            os.environ["GEMINI_API_KEY"] = api_key
 
     server = LocalHTTPServer((HOST, PORT), AuraRequestHandler)
     print(f"Aura is running at http://{HOST}:{PORT}")
