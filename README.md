@@ -13,6 +13,8 @@ Aura is a local website with a Python backend. The backend uses Python's standar
 
 Keep the terminal running while you use Aura. Do not open `index.html` directly: the website needs the backend server, and the microphone/browser behavior works best from the local server URL.
 
+Aura does not open a blank tab when listening starts. Your browser may block a website opened after a voice command; if so, allow pop-ups for the local Aura page.
+
 ## Commands
 
 - `open YouTube`

@@ -8,16 +8,6 @@ const historyList = document.getElementById("historyList");
 const clearHistoryButton = document.getElementById("clearHistoryButton");
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition;
-let voiceTab = null;
-
-function prepareVoiceTab() {
-  voiceTab = window.open("about:blank", "_blank");
-}
-
-function closeVoiceTab() {
-  if (voiceTab && !voiceTab.closed) voiceTab.close();
-  voiceTab = null;
-}
 
 function openUrl(url) {
   const parsedUrl = new URL(url);
@@ -26,11 +16,6 @@ function openUrl(url) {
     throw new Error("The server returned an unsupported website address.");
   }
 
-  if (voiceTab && !voiceTab.closed) {
-    voiceTab.location.href = parsedUrl.href;
-    voiceTab = null;
-    return true;
-  }
   return Boolean(window.open(parsedUrl.href, "_blank", "noopener,noreferrer"));
 }
 
@@ -80,10 +65,7 @@ async function loadHistory() {
 
 async function runCommand(rawCommand) {
   const command = rawCommand.trim();
-  if (!command) {
-    closeVoiceTab();
-    return;
-  }
+  if (!command) return;
 
   transcript.textContent = `You said: “${command}”`;
   statusText.textContent = "Working on it…";
@@ -101,13 +83,11 @@ async function runCommand(rawCommand) {
       const opened = openUrl(data.action.url);
       statusText.textContent = opened ? data.message : "Pop-up blocked. Allow pop-ups to open that website.";
     } else {
-      closeVoiceTab();
       statusText.textContent = data.message;
     }
     speak(data.message);
     await loadHistory();
   } catch (error) {
-    closeVoiceTab();
     statusText.textContent = `Backend error: ${error.message}`;
   }
 }
@@ -129,22 +109,16 @@ if (SpeechRecognition) {
       "audio-capture": "No microphone was found."
     };
     statusText.textContent = messages[event.error] || `Voice recognition error: ${event.error}`;
-    closeVoiceTab();
   };
 
   listenButton.addEventListener("click", () => {
-    prepareVoiceTab();
     try {
       recognition.start();
     } catch (error) {
-      closeVoiceTab();
       statusText.textContent = `Unable to start voice recognition: ${error.message}`;
     }
   });
-  stopButton.addEventListener("click", () => {
-    closeVoiceTab();
-    recognition.stop();
-  });
+  stopButton.addEventListener("click", () => recognition.stop());
 } else {
   listenButton.disabled = true;
   statusText.textContent = "Voice recognition is not supported in this browser";
@@ -153,7 +127,6 @@ if (SpeechRecognition) {
 
 document.getElementById("commandForm").addEventListener("submit", (event) => {
   event.preventDefault();
-  prepareVoiceTab();
   const command = commandInput.value;
   commandInput.value = "";
   commandInput.focus();
@@ -161,10 +134,7 @@ document.getElementById("commandForm").addEventListener("submit", (event) => {
 });
 
 document.querySelectorAll("[data-command]").forEach((button) => {
-  button.addEventListener("click", () => {
-    prepareVoiceTab();
-    runCommand(button.dataset.command);
-  });
+  button.addEventListener("click", () => runCommand(button.dataset.command));
 });
 
 clearHistoryButton.addEventListener("click", async () => {
