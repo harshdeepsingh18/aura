@@ -21,23 +21,39 @@
         <button class="nav-item" type="button" data-scroll-target="exploreSection">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"/></svg><span>Explore</span>
         </button>
-        <button class="nav-item" type="button" data-scroll-target="historySection">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>History</span>
+        <button class="nav-item" type="button" data-scroll-target="savedChats">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-9.5A7.5 7.5 0 0 1 10.5 4h2A7.5 7.5 0 0 1 20 11.5Z"/><path d="M8 10h7M8 13h5"/></svg><span>Chats</span>
         </button>
         <button class="nav-item" type="button" data-scroll-target="setupNote">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-.5 2.1a7.4 7.4 0 0 0-1.7 1l-2-.7-1.5 2.6 1.5 1.5a7 7 0 0 0 0 2l-1.5 1.5 1.5 2.6 2-.7a7.4 7.4 0 0 0 1.7 1L10 19h4l.5-2.1a7.4 7.4 0 0 0 1.7-1l2 .7 1.5-2.6-1.5-1.5a7 7 0 0 0 0-2l1.5-1.5-1.5-2.6-2 .7a7.4 7.4 0 0 0-1.7-1L14 3h-4Z"/><circle cx="12" cy="11.5" r="2.5"/></svg><span>Settings</span>
         </button>
       </nav>
+      <section class="sidebar-chats" id="savedChats" aria-label="Saved chats">
+        <div class="sidebar-chats-heading">
+          <h2>Your chats</h2>
+          <button class="new-chat-button" id="newChatButton" type="button" aria-label="Start a new chat" title="Start a new chat">+</button>
+        </div>
+        <div class="sidebar-chat-list" id="chatList" aria-live="polite">
+          <p class="sidebar-chat-empty">Loading chats…</p>
+        </div>
+      </section>
       <div class="sidebar-bottom">
         <div class="provider-card">
           <span class="provider-sparkle" aria-hidden="true">✦</span>
           <span><strong>Powered by Gemini</strong><small>Smarter. Faster. Together.</small></span>
         </div>
-        <button class="account-card" type="button" data-scroll-target="setupNote">
-          <span class="account-avatar" aria-hidden="true">A</span>
-          <span class="account-copy"><strong>Local user</strong><small>Gemini API</small></span>
-          <svg class="account-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
-        </button>
+        <div class="account-actions">
+          <button class="account-card" id="signInButton" type="button" disabled>
+            <span class="account-avatar" aria-hidden="true">G</span>
+            <span class="account-copy"><strong>Sign in / Sign up</strong><small id="accountHint">Continue with Google</small></span>
+            <svg class="account-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+          </button>
+          <div class="account-signed-in" id="signedInAccount" hidden>
+            <span class="account-avatar" id="accountAvatar" aria-hidden="true">G</span>
+            <span class="account-copy"><strong id="accountName">Google user</strong><small id="accountEmail"></small></span>
+            <button class="sign-out-button" id="signOutButton" type="button">Sign out</button>
+          </div>
+        </div>
       </div>
     </aside>
     <main class="app">
@@ -112,19 +128,11 @@
         <button class="quick" type="button" data-command="Open Notepad">Open Notepad</button>
       </div>
     </section>
-    <section class="history" id="historySection" aria-label="Recent commands">
-      <div class="history-heading">
-        <p class="section-label">Recent commands</p>
-        <button class="clear-history" id="clearHistoryButton" type="button">Clear</button>
-      </div>
-      <ul id="historyList" class="history-list" aria-live="polite">
-        <li class="history-empty">Loading command history…</li>
-      </ul>
-    </section>
-    <footer>Voice input works best in Chrome or Edge. Aura opens websites and apps when you ask.<br>Photos, PDFs, and text files up to 10 MB are sent to Gemini with your question. Attachments are not saved in chat history. Do not upload sensitive information.</footer>
+    <footer>Voice input works best in Chrome or Edge. Website and desktop app actions are available only when Aura runs locally.<br>Photos, PDFs, and text files up to 10 MB are sent to Gemini with your question. Do not upload sensitive information.</footer>
     </main>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
   <script src="script.js" defer></script>
 </body>
 </html>

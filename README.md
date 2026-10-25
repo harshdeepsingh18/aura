@@ -1,25 +1,40 @@
 # Aura Voice Assistant
 
-Aura is a local website with a Python backend and AI chat powered by the Gemini API. A Gemini API key and an internet connection are required. Aura saves the most recent 50 chat turns in `data/history.json`.
+Aura is a Python web app with AI chat powered by the Gemini API. Google sign-in uses Supabase Auth, and each user's conversations are saved in Supabase so they can access them from supported devices.
 
-## Run Aura
+## Configure Supabase and Google sign-in
 
-1. Install Python 3 if it is not already installed.
-2. Create an API key from the [Gemini platform](https://aistudio.google.com/app/apikey).
-3. In the Aura folder, create a `.env` file and add your key:
-   ```powershell
-   GEMINI_API_KEY=your_key_here
-   ```
-   `.env` is ignored by Git; do not share or commit your API key.
-4. Open PowerShell in the Aura folder and start Aura:
+1. Create a Supabase project.
+2. In the Supabase SQL Editor, run [`supabase_schema.sql`](./supabase_schema.sql). The `chats` table uses row-level security so signed-in users can only access their own records.
+3. In Supabase, open **Authentication → Providers → Google** and enable Google. Configure a Google OAuth web client in Google Cloud:
+   - Add Supabase's callback URL, shown in the Google provider settings, as an authorized redirect URI in Google Cloud.
+   - Put the Google client ID and client secret into the Supabase Google provider settings.
+   - Add the app's local and deployed origins to **Authentication → URL Configuration → Redirect URLs** in Supabase.
+4. Copy the Supabase project URL and the project's **publishable/anon key** into Aura's `.env` file. Never use a Supabase service-role key in Aura.
+
+```powershell
+GEMINI_API_KEY=your_gemini_key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_supabase_publishable_or_anon_key
+```
+
+For a public HTTPS deployment, also configure `APP_ORIGIN` to the exact public origin, for example `https://aura.example.com`, and bind the server to the host provided by your platform (commonly `HOST=0.0.0.0`). Set `PORT` if required by the platform. Keep `.env` and all provider secrets private. Configure the same exact origin in Supabase's redirect URL allowlist.
+
+## Run locally
+
+1. Install Python 3.
+2. Add the Gemini and Supabase values above to `.env`.
+3. Start Aura from its folder:
    - Windows: `py server.py`
    - Or: `python server.py`
-5. Open `http://127.0.0.1:3000` in Chrome or Edge and allow microphone access to use voice chat.
+4. Open `http://127.0.0.1:3000` in Chrome or Edge and select **Sign in / Sign up**. The first Google sign-in creates the account; allow the local origin in Supabase's redirect URL allowlist.
 
-Keep the terminal running while you use Aura. Do not open `index.html` directly: the website needs the backend server, and the microphone/browser behavior works best from the local server URL.
+Keep the terminal running while using Aura. Do not open `index.html` directly; Aura needs its backend server. Without Supabase settings, localhost remains usable in local-only mode, but Google sign-in and cross-device sync are unavailable.
 
-Aura does not open a blank tab when listening starts. Ask Aura to open a website or launch Notepad/Calculator, then approve or cancel the proposed action. Websites are only opened after your approval; desktop actions are limited to Notepad and Calculator. Aura cannot control every app or do literally everything on your computer.
+## Chats and privacy
 
-Chat prompts are sent to Gemini's hosted API using the `gemini-3.1-flash-lite` model, so API usage may incur charges under your Gemini account. Conversation history is stored locally in `data/history.json`; use **Clear** in the page to delete it. The backend binds only to `127.0.0.1` and never runs arbitrary shell commands.
+Use **Your chats** to reopen conversations, **+** to start a new chat, and **×** to delete a chat after confirmation. On the first sign-in, Aura copies existing local chats from `data/chats.json` (or legacy `data/history.json`) into the first Google account. The local files are retained. Later chats are stored in Supabase and are scoped to the signed-in account by row-level security.
 
-Use **Add photo or file** to ask Gemini about a PNG, JPEG, WebP, or GIF photo, a PDF, or a TXT, Markdown, CSV, or JSON file. Attachments are limited to 10 MB, sent to Gemini with your question, and are not saved in local chat history.
+Chat prompts and supported attachments are sent to Google's Gemini API using the `gemini-3.1-flash-lite` model. API usage may incur charges under your Gemini account. Attachments are limited to 10 MB and are not retained in chat history.
+
+Voice input works best in Chrome or Edge. Website and desktop app actions are available only when Aura runs locally; a cloud-hosted server cannot open them on a user's computer.

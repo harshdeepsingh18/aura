@@ -70,6 +70,86 @@
     .sidebar-brand-copy strong { font-size: 1.15rem; letter-spacing: -0.03em; }
     .sidebar-brand-copy small, .provider-card small, .account-copy small { color: #96a4bf; font-size: 0.68rem; }
     .sidebar-nav { display: grid; gap: 6px; margin-top: 28px; }
+    .sidebar-chats {
+      display: flex;
+      min-height: 0;
+      flex: 1;
+      flex-direction: column;
+      margin-top: 24px;
+    }
+    .sidebar-chats-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 7px 9px; }
+    .sidebar-chats-heading h2 { margin: 0; color: #9eacc5; font-size: 0.72rem; font-weight: 600; }
+    .new-chat-button {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      padding: 0;
+      border: 1px solid rgba(91, 122, 178, 0.3);
+      border-radius: 8px;
+      color: #dce7ff;
+      background: rgba(91, 122, 178, 0.12);
+      cursor: pointer;
+    }
+    .new-chat-button:hover { background: rgba(91, 122, 178, 0.24); }
+    .sidebar-chat-list {
+      display: grid;
+      min-height: 0;
+      flex: 1;
+      align-content: start;
+      gap: 4px;
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding: 0 2px 6px;
+      scrollbar-color: rgba(135, 157, 205, 0.48) transparent;
+      scrollbar-width: thin;
+    }
+    .sidebar-chat-row { display: flex; min-width: 0; align-items: center; gap: 3px; }
+    .sidebar-chat-item {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      padding: 9px 10px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      color: #aebbd3;
+      background: transparent;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .sidebar-chat-item:hover { background: rgba(109, 133, 190, 0.12); color: white; }
+    .sidebar-chat-item[aria-current="true"] {
+      border-color: rgba(108, 151, 255, 0.68);
+      color: white;
+      background: linear-gradient(100deg, rgba(53, 103, 207, 0.48), rgba(53, 83, 150, 0.22));
+      box-shadow: inset 3px 0 #7ca9ff;
+      font-weight: 700;
+    }
+    .sidebar-chat-delete {
+      display: grid;
+      width: 30px;
+      height: 32px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: #8794ad;
+      background: transparent;
+      cursor: pointer;
+      font-size: 1.15rem;
+      line-height: 1;
+      opacity: 0.72;
+    }
+    .sidebar-chat-row:hover .sidebar-chat-delete,
+    .sidebar-chat-delete:focus-visible { opacity: 1; }
+    .sidebar-chat-delete:hover {
+      border-color: rgba(255, 120, 137, 0.32);
+      color: #ffc1c9;
+      background: rgba(190, 64, 83, 0.18);
+    }
+    .sidebar-chat-empty { margin: 4px 8px; color: #78839b; font-size: 0.75rem; }
     .nav-item {
       display: flex;
       min-height: 42px;
@@ -89,6 +169,7 @@
     .nav-item:hover { transform: translateX(2px); color: white; background: rgba(109, 133, 190, 0.12); }
     .nav-item.active { color: white; background: linear-gradient(105deg, #2674ee, #5737e7); box-shadow: 0 7px 20px rgba(53, 83, 230, 0.24); }
     .sidebar-bottom { display: grid; gap: 10px; margin-top: auto; }
+    .account-actions { display: grid; gap: 8px; }
     .provider-card, .account-card {
       display: flex;
       align-items: center;
@@ -103,6 +184,31 @@
     .provider-card small, .account-copy small { font-size: 0.59rem; }
     .account-card { width: 100%; text-align: left; cursor: pointer; transition: background 0.18s ease, border-color 0.18s ease; }
     .account-card:hover { border-color: rgba(109, 145, 209, 0.5); background: rgba(20, 35, 62, 0.86); }
+    .account-card:disabled { cursor: not-allowed; }
+    .account-signed-in {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 8px;
+      border: 1px solid rgba(91, 122, 178, 0.24);
+      border-radius: 13px;
+      background: rgba(13, 23, 42, 0.62);
+    }
+    .account-signed-in[hidden], #signInButton[hidden] { display: none; }
+    .account-signed-in .account-copy { min-width: 0; flex: 1; overflow: hidden; }
+    .account-signed-in .account-copy strong, .account-signed-in .account-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sign-out-button {
+      flex: 0 0 auto;
+      padding: 6px 7px;
+      border: 1px solid rgba(91, 122, 178, 0.24);
+      border-radius: 8px;
+      color: #aebbd3;
+      background: transparent;
+      cursor: pointer;
+      font-size: 0.64rem;
+    }
+    .sign-out-button:hover { color: white; background: rgba(109, 133, 190, 0.12); }
     .account-avatar { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 50%; color: white; background: linear-gradient(145deg, #608dff, #714fe3); font-size: 0.8rem; }
     .account-chevron { width: 15px; height: 15px; margin-left: auto; fill: none; stroke: #9aa8c2; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -493,50 +599,6 @@
       transition: transform 0.18s, border-color 0.18s;
     }
     .quick:hover { border-color: rgba(155, 124, 255, 0.6); }
-    .history {
-      margin-top: 30px;
-      padding-top: 22px;
-      border-top: 1px solid var(--line);
-    }
-    .history-heading {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .history-heading .section-label { margin-bottom: 0; }
-    .clear-history {
-      padding: 5px 9px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      background: transparent;
-      cursor: pointer;
-      font-size: 0.75rem;
-    }
-    .history-list {
-      display: grid;
-      gap: 8px;
-      margin: 14px 0 0;
-      padding: 0;
-      list-style: none;
-    }
-    .history-item, .history-empty {
-      padding: 10px 12px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      color: #c8d0e3;
-      background: rgba(255, 255, 255, 0.025);
-      font-size: 0.83rem;
-      overflow-wrap: anywhere;
-    }
-    .history-item time {
-      display: block;
-      margin-top: 4px;
-      color: #78839b;
-      font-size: 0.72rem;
-    }
-    .history-empty { color: var(--muted); text-align: center; }
     footer {
       margin-top: 28px;
       color: #78839b;
@@ -548,7 +610,7 @@
     @media (max-width: 760px) {
       body { padding: 12px; }
       .workspace-shell { min-height: 0; flex-direction: column; gap: 10px; }
-      .sidebar { position: relative; top: auto; width: 100%; height: auto; min-height: 0; flex-basis: auto; flex-direction: row; align-items: center; padding: 9px 10px; }
+      .sidebar { position: relative; top: auto; width: 100%; height: auto; min-height: 0; flex-basis: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 9px 10px; }
       .sidebar-brand { flex: 0 0 auto; padding: 0 5px; }
       .sidebar-logo { width: 25px; font-size: 23px; }
       .sidebar-brand-copy strong { font-size: 1rem; }
@@ -557,7 +619,10 @@
       .nav-item { min-height: 38px; gap: 7px; padding: 0 9px; }
       .nav-item svg { width: 16px; height: 16px; }
       .nav-item span { font-size: 0.72rem; }
-      .sidebar-bottom { display: none; }
+      .sidebar-chats { width: 100%; max-height: 190px; flex-basis: 100%; margin-top: 10px; }
+      .sidebar-chat-list { max-height: 145px; }
+      .sidebar-bottom { display: block; width: 100%; margin-top: 8px; }
+      .provider-card { display: none; }
       .app { max-width: none; }
     }
     @media (max-width: 520px) {
