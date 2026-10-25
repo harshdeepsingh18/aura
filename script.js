@@ -163,7 +163,7 @@ async function loadHistory() {
 
 async function checkAiStatus() {
   const response = await fetch("/api/status");
-  if (!response.ok) throw new Error("Could not check local AI setup.");
+  if (!response.ok) throw new Error("Could not check Gemini API setup.");
   const data = await response.json();
   setupNote.textContent = data.aiConfigured
     ? `${data.provider} is ready (${data.model}).`

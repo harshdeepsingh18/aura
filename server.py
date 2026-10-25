@@ -21,8 +21,8 @@ DATA_DIR = ROOT_DIR / "data"
 HISTORY_FILE = DATA_DIR / "history.json"
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("PORT", "3000"))
-OLLAMA_URL = "http://127.0.0.1:11434"
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:4b")
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+GEMINI_MODEL = "gemini-3.1-flash-lite"
 MAX_REQUEST_BYTES = 4096
 MAX_CHAT_REQUEST_BYTES = 128 * 1024
 HISTORY_LIMIT = 50
@@ -37,7 +37,7 @@ ALLOWED_APPS = {
     "notepad": ("notepad.exe", "Notepad"),
     "calculator": ("calc.exe", "Calculator"),
 }
-OLLAMA_TOOLS = [
+AI_TOOLS = [
     {
         "type": "function",
         "function": {
@@ -76,6 +76,24 @@ OLLAMA_TOOLS = [
         },
     },
 ]
+
+
+def load_gemini_api_key():
+    environment_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if environment_key:
+        return environment_key
+
+    env_file = ROOT_DIR / ".env"
+    if not env_file.exists():
+        return ""
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.strip().partition("=")
+        if separator and key.strip() == "GEMINI_API_KEY":
+            return value.strip().strip("\"'")
+    return ""
+
+
+GEMINI_API_KEY = load_gemini_api_key()
 SYSTEM_INSTRUCTION = (
     "You are Aura, a helpful conversational voice assistant. Answer general questions "
     "naturally and clearly. You have no live web access, so be honest about that. "
@@ -214,104 +232,112 @@ def extract_service_error_message(error_body):
 
     message = find_message(parsed_body) if parsed_body is not None else decoded_body
     if not message:
-        message = "The local AI service did not return an error description."
+        message = "The AI service did not return an error description."
     return " ".join(message.split())[:500]
 
 
-def ollama_status():
-    request = Request(f"{OLLAMA_URL}/api/tags", method="GET")
-    try:
-        with urlopen(request, timeout=2) as response:
-            result = json.loads(response.read())
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
-        return {
-            "aiConfigured": False,
-            "provider": "Ollama (local)",
-            "model": OLLAMA_MODEL,
-            "message": "Start Ollama, then download the model shown in the setup instructions.",
-        }
-
-    models = result.get("models", [])
-    installed = any(
-        isinstance(model, dict)
-        and model.get("name", model.get("model")) in (OLLAMA_MODEL, f"{OLLAMA_MODEL}:latest")
-        for model in models
-    )
+def gemini_status():
     return {
-        "aiConfigured": installed,
-        "provider": "Ollama (local)",
-        "model": OLLAMA_MODEL,
+        "aiConfigured": bool(GEMINI_API_KEY),
+        "provider": "Google Gemini API",
+        "model": GEMINI_MODEL,
         "message": (
-            "Local model is ready."
-            if installed
-            else f"Download the model by running: ollama pull {OLLAMA_MODEL}"
+            "Gemini API key is ready."
+            if GEMINI_API_KEY
+            else "Add GEMINI_API_KEY to the .env file or environment, then restart Aura."
         ),
     }
 
 
-def generate_local_reply(messages):
+def gemini_function_declarations():
+    return [
+        {
+            "name": tool["function"]["name"],
+            "description": tool["function"]["description"],
+            "parameters": {
+                key: value
+                for key, value in tool["function"]["parameters"].items()
+                if key != "additionalProperties"
+            },
+        }
+        for tool in AI_TOOLS
+    ]
+
+
+def generate_gemini_reply(messages):
+    if not GEMINI_API_KEY:
+        raise RuntimeError(
+            "Gemini API key is missing. Add GEMINI_API_KEY to the .env file or environment, then restart Aura."
+        )
+
+    contents = [
+        {
+            "role": "user" if message["role"] == "user" else "model",
+            "parts": [{"text": message["content"]}],
+        }
+        for message in messages
+    ]
     payload = {
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "system", "content": SYSTEM_INSTRUCTION}, *messages],
-        "tools": OLLAMA_TOOLS,
-        "stream": False,
-        "options": {"num_predict": 1024},
+        "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
+        "contents": contents,
+        "tools": [{"functionDeclarations": gemini_function_declarations()}],
+        "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
     }
     request = Request(
-        f"{OLLAMA_URL}/api/chat",
+        f"{GEMINI_API_URL}/{GEMINI_MODEL}:generateContent",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "x-goog-api-key": GEMINI_API_KEY,
+            "Content-Type": "application/json",
+        },
         method="POST",
     )
     try:
-        with urlopen(request, timeout=300) as response:
+        with urlopen(request, timeout=120) as response:
             result = json.loads(response.read())
     except HTTPError as error:
         service_message = extract_service_error_message(error.read())
-        raise RuntimeError(f"Ollama error (HTTP {error.code}): {service_message}") from None
-    except (URLError, TimeoutError) as error:
-        raise RuntimeError("Could not connect to Ollama. Start the Ollama app and try again.") from error
+        raise RuntimeError(f"Gemini API error (HTTP {error.code}): {service_message}") from None
+    except (URLError, TimeoutError):
+        raise RuntimeError("Could not connect to the Gemini API. Check your internet connection.") from None
     except json.JSONDecodeError as error:
-        raise RuntimeError("Ollama returned an invalid response.") from error
+        raise RuntimeError("Gemini API returned an invalid response.") from error
 
     try:
-        message = result["message"]
+        parts = result["candidates"][0]["content"]["parts"]
     except (KeyError, IndexError, TypeError) as error:
-        raise RuntimeError("Ollama did not return a usable answer. Try asking another way.") from error
+        raise RuntimeError("Gemini API did not return a usable answer. Try asking another way.") from error
+    if not isinstance(parts, list):
+        raise RuntimeError("Gemini API returned an invalid answer. Try asking again.")
 
-    reply = message.get("content")
-    reply = reply.strip() if isinstance(reply, str) else ""
+    reply_parts = []
     action = None
-    tool_calls = message.get("tool_calls")
-    if not isinstance(tool_calls, list):
-        tool_calls = []
-    for tool_call in tool_calls:
-        if not isinstance(tool_call, dict):
+    for part in parts:
+        if not isinstance(part, dict):
             continue
-        function_call = tool_call.get("function", {})
-        if not isinstance(function_call, dict):
+        part_text = part.get("text")
+        if isinstance(part_text, str):
+            reply_parts.append(part_text)
+        function_call = part.get("functionCall")
+        if not isinstance(function_call, dict) or action is not None:
             continue
-        arguments = function_call.get("arguments", {})
-        if isinstance(arguments, str):
-            try:
-                arguments = json.loads(arguments)
-            except json.JSONDecodeError:
-                continue
+        arguments = function_call.get("args", {})
         if not isinstance(arguments, dict):
             continue
-        if function_call.get("name") == "open_website" and action is None:
+        if function_call.get("name") == "open_website":
             try:
                 action = {
                     "type": "open-url",
                     "url": validate_public_https_url(arguments.get("url")),
                 }
             except ValueError:
-                reply = reply or "I can't open that address. Aura only opens public HTTPS websites."
-        elif function_call.get("name") == "launch_app" and action is None:
+                reply_parts.append("I can't open that address. Aura only opens public HTTPS websites.")
+        elif function_call.get("name") == "launch_app":
             app_name = arguments.get("app")
             if isinstance(app_name, str) and app_name in ALLOWED_APPS:
                 action = {"type": "launch-app", "app": app_name}
 
+    reply = "\n".join(part.strip() for part in reply_parts if part.strip())
     if action and not reply:
         if action["type"] == "open-url":
             reply = f"Would you like me to open {action['url']}?"
@@ -389,7 +415,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         if route == "/api/status":
             self._send_json(
                 200,
-                ollama_status(),
+                gemini_status(),
             )
             return
         if route == "/api/history":
@@ -463,7 +489,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            result = generate_local_reply(messages)
+            result = generate_gemini_reply(messages)
         except RuntimeError as error:
             self._send_json(503, {"error": str(error)})
             return
