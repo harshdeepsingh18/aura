@@ -120,12 +120,12 @@ def explicit_open_action(command):
         flags=re.IGNORECASE,
     )
     if play_request:
-        for preferred_player in ("Windows Media Player", "Spotify", "VLC media player", "Media Player"):
+        for preferred_player in ("Spotify", "Windows Media Player", "VLC media player", "Media Player"):
             player = resolve_desktop_app(preferred_player)
             if player:
                 app_id, app_label, _ = player
                 return {"type": "launch-app", "app": app_id, "appName": app_label}
-        return {"type": "open-url", "url": "https://music.youtube.com"}
+        return {"type": "open-url", "url": "https://open.spotify.com"}
 
     match = re.match(
         r"^\s*(?:aura[, :]+)?(?:(?:can|could|would) you\s+)?(?:please\s+)?"
@@ -146,6 +146,7 @@ def explicit_open_action(command):
         "youtube": "https://www.youtube.com",
         "youtube.com": "https://www.youtube.com",
         "youtube music": "https://music.youtube.com",
+        "spotify": "https://open.spotify.com",
         "google": "https://www.google.com",
         "gmail": "https://mail.google.com",
         "google maps": "https://maps.google.com",
