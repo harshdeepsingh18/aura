@@ -169,8 +169,7 @@
     .nav-item:hover { transform: translateX(2px); color: white; background: rgba(109, 133, 190, 0.12); }
     .nav-item.active { color: white; background: linear-gradient(105deg, #2674ee, #5737e7); box-shadow: 0 7px 20px rgba(53, 83, 230, 0.24); }
     .sidebar-bottom { display: grid; gap: 10px; margin-top: auto; }
-    .account-actions { display: grid; gap: 8px; }
-    .provider-card, .account-card {
+    .provider-card, .local-storage-card {
       display: flex;
       align-items: center;
       gap: 10px;
@@ -179,38 +178,9 @@
       border-radius: 13px;
       background: rgba(13, 23, 42, 0.62);
     }
-    .provider-sparkle { width: 25px; font-size: 23px; }
-    .provider-card strong, .account-copy strong { color: #e0e8fb; font-size: 0.68rem; font-weight: 600; }
-    .provider-card small, .account-copy small { font-size: 0.59rem; }
-    .account-card { width: 100%; text-align: left; cursor: pointer; transition: background 0.18s ease, border-color 0.18s ease; }
-    .account-card:hover { border-color: rgba(109, 145, 209, 0.5); background: rgba(20, 35, 62, 0.86); }
-    .account-card:disabled { cursor: not-allowed; }
-    .account-signed-in {
-      display: flex;
-      min-width: 0;
-      align-items: center;
-      gap: 8px;
-      padding: 9px 8px;
-      border: 1px solid rgba(91, 122, 178, 0.24);
-      border-radius: 13px;
-      background: rgba(13, 23, 42, 0.62);
-    }
-    .account-signed-in[hidden], #signInButton[hidden] { display: none; }
-    .account-signed-in .account-copy { min-width: 0; flex: 1; overflow: hidden; }
-    .account-signed-in .account-copy strong, .account-signed-in .account-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sign-out-button {
-      flex: 0 0 auto;
-      padding: 6px 7px;
-      border: 1px solid rgba(91, 122, 178, 0.24);
-      border-radius: 8px;
-      color: #aebbd3;
-      background: transparent;
-      cursor: pointer;
-      font-size: 0.64rem;
-    }
-    .sign-out-button:hover { color: white; background: rgba(109, 133, 190, 0.12); }
-    .account-avatar { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 50%; color: white; background: linear-gradient(145deg, #608dff, #714fe3); font-size: 0.8rem; }
-    .account-chevron { width: 15px; height: 15px; margin-left: auto; fill: none; stroke: #9aa8c2; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .provider-sparkle, .storage-icon { width: 25px; font-size: 23px; }
+    .provider-card strong, .local-storage-card strong { color: #e0e8fb; font-size: 0.68rem; font-weight: 600; }
+    .provider-card small, .local-storage-card small { font-size: 0.59rem; }
 
     button, input { font: inherit; }
     button { color: inherit; }
@@ -253,7 +223,6 @@
     .settings-panel p { color: var(--muted); line-height: 1.6; }
     .settings-account-name { margin: 0; color: var(--text) !important; font-weight: 650; }
     .settings-account-email { margin: 4px 0 16px; font-size: 0.88rem; }
-    .settings-sign-out { min-height: 40px; }
     .web-search-form {
       display: flex;
       max-width: 680px;
