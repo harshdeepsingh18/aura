@@ -2,11 +2,13 @@ import json
 import ipaddress
 import logging
 import os
+import re
 import secrets
 import subprocess
 import tempfile
 import threading
 import time
+import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -110,6 +112,57 @@ def resolve_desktop_app(app_name):
     return None
 
 
+def explicit_open_action(command):
+    play_request = re.match(
+        r"^\s*(?:aura[, :]+)?(?:(?:can|could|would) you\s+)?(?:please\s+)?"
+        r"(?:play|start playing)\s+(?:some\s+)?(?:music|a song|songs|a playlist)\b",
+        command,
+        flags=re.IGNORECASE,
+    )
+    if play_request:
+        for preferred_player in ("Windows Media Player", "Spotify", "VLC media player", "Media Player"):
+            player = resolve_desktop_app(preferred_player)
+            if player:
+                app_id, app_label, _ = player
+                return {"type": "launch-app", "app": app_id, "appName": app_label}
+        return {"type": "open-url", "url": "https://music.youtube.com"}
+
+    match = re.match(
+        r"^\s*(?:aura[, :]+)?(?:(?:can|could|would) you\s+)?(?:please\s+)?"
+        r"(?:open|launch|start|run|visit|go to)\s+(?:the\s+)?(.+?)\s*[.!?]*\s*$",
+        command,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    target = re.sub(r"\s+(?:for me|please)$", "", match.group(1).strip(), flags=re.IGNORECASE)
+    app = resolve_desktop_app(target)
+    if app:
+        app_id, app_label, _ = app
+        return {"type": "launch-app", "app": app_id, "appName": app_label}
+
+    websites = {
+        "youtube": "https://www.youtube.com",
+        "youtube.com": "https://www.youtube.com",
+        "youtube music": "https://music.youtube.com",
+        "google": "https://www.google.com",
+        "gmail": "https://mail.google.com",
+        "google maps": "https://maps.google.com",
+        "chatgpt": "https://chatgpt.com",
+    }
+    website = websites.get(target.casefold())
+    if website:
+        return {"type": "open-url", "url": website}
+    if re.fullmatch(r"(?:https://)?[a-z0-9.-]+\.[a-z]{2,}(?:/[^\s]*)?", target, re.IGNORECASE):
+        candidate = target if target.lower().startswith("https://") else f"https://{target}"
+        try:
+            return {"type": "open-url", "url": validate_public_https_url(candidate)}
+        except ValueError:
+            return None
+    return None
+
+
 def load_gemini_api_key():
     environment_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if environment_key:
@@ -131,7 +184,8 @@ SYSTEM_INSTRUCTION = (
     "naturally and clearly. You have no live web access, so be honest about that. "
     "You may propose opening a website only when the user explicitly asks to open or visit "
     "one, and may propose launching an installed desktop app only when explicitly requested. "
-    "Never claim an action has already happened. The user must approve every proposed action."
+    "Never claim an action has already happened. The site performs actions only in direct response "
+    "to an explicit user request."
 )
 
 
@@ -405,8 +459,6 @@ def generate_gemini_reply(messages):
             reply = f"Would you like me to open {action['url']}?"
         else:
             reply = f"Would you like me to open {action['appName']}?"
-    if action:
-        reply = f"{reply}\n\nI haven't done this yet. Approve below to continue."
     if not reply:
         reply = "I couldn't create a text answer. Please try asking again."
     return {"reply": reply, "action": action}
@@ -551,12 +603,28 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            result = generate_gemini_reply(messages)
+            direct_action = explicit_open_action(messages[-1]["content"])
+            result = (
+                {"reply": "", "action": direct_action}
+                if direct_action
+                else generate_gemini_reply(messages)
+            )
         except RuntimeError as error:
             self._send_json(503, {"error": str(error)})
             return
-        if result["action"] and result["action"]["type"] == "launch-app":
-            result["action"]["confirmationToken"] = issue_action_confirmation(result["action"]["app"])
+        action = result.get("action")
+        if action:
+            if action["type"] == "open-url":
+                if webbrowser.open(action["url"], new=2):
+                    result["reply"] = f"Opened {action['url']}"
+                else:
+                    result["reply"] = "I couldn't open that website in your browser."
+            elif action["type"] == "launch-app":
+                try:
+                    result["reply"] = launch_allowed_app(action["app"])
+                except OSError:
+                    result["reply"] = f"I couldn't open {action['appName']}."
+            result["action"] = None
 
         user_text = messages[-1]["content"].strip()
         with HISTORY_LOCK:
