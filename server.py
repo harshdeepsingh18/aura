@@ -293,19 +293,23 @@ def read_chats():
     return chats
 
 
-def chat_summaries(chats):
+def ordered_chats(chats):
     valid_chats = [
         chat
         for chat in chats
         if isinstance(chat, dict) and isinstance(chat.get("id"), str)
     ]
+    return sorted(valid_chats, key=lambda entry: entry.get("updatedAt", entry.get("createdAt", "")), reverse=True)
+
+
+def chat_summaries(chats):
     return [
         {
             "id": chat["id"],
             "title": chat.get("title", "New chat"),
             "updatedAt": chat.get("updatedAt", chat.get("createdAt", "")),
         }
-        for chat in sorted(valid_chats, key=lambda entry: entry.get("updatedAt", ""), reverse=True)
+        for chat in ordered_chats(chats)
     ]
 
 
@@ -913,7 +917,13 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
                 try:
                     with CHATS_LOCK:
                         chats = read_chats()
-                    self._send_json(200, {"chats": chat_summaries(chats)})
+                    self._send_json(
+                        200,
+                        {
+                            "chats": chat_summaries(chats),
+                            "activeChat": next(iter(ordered_chats(chats)), None),
+                        },
+                    )
                 except (OSError, ValueError, json.JSONDecodeError):
                     self.log_error("Could not read local chats.")
                     self._send_json(500, {"error": "Could not read saved chats."})
@@ -924,7 +934,13 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             _, access_token = authenticated
             try:
                 chats = read_supabase_chats(access_token)
-                self._send_json(200, {"chats": chat_summaries(chats)})
+                self._send_json(
+                    200,
+                    {
+                        "chats": chat_summaries(chats),
+                        "activeChat": next(iter(ordered_chats(chats)), None),
+                    },
+                )
             except SupabaseError as error:
                 self.log_error("Could not read saved chats from Supabase.")
                 self._send_supabase_error(error)

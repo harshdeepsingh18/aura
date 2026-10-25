@@ -31,6 +31,8 @@ const removeAttachmentButton = document.getElementById("removeAttachmentButton")
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const MAX_CONVERSATION_MESSAGES = 10;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const API_REQUEST_TIMEOUT_MS = 45000;
+const AI_REQUEST_TIMEOUT_MS = 135000;
 let recognition;
 let conversation = [];
 let selectedChatId = null;
@@ -53,7 +55,6 @@ function setChatAccess(isSignedIn) {
   document.querySelectorAll("[data-command]").forEach((button) => {
     button.disabled = !isSignedIn;
   });
-  settingsSignOutButton.addEventListener("click", () => signOutButton.click());
 }
 
 function showSignedOutState(message = "Sign in with Google to see your saved chats.") {
@@ -101,16 +102,89 @@ signInButton.addEventListener("click", () => {
 });
 
 async function apiFetch(url, options = {}) {
-  if (localMode) return fetch(url, options);
+  const timeoutMs = url === "/api/chat" ? AI_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS;
+  if (localMode) return fetchWithTimeout(url, options, timeoutMs);
 
-  const { data, error } = await supabaseClient.auth.getSession();
+  const { data, error } = await withTimeout(
+    supabaseClient.auth.getSession(),
+    API_REQUEST_TIMEOUT_MS,
+    "Checking your sign-in timed out. Check your connection and refresh the page."
+  );
   if (error) throw error;
   activeSession = data.session;
   if (!activeSession) throw new Error("Sign in with Google to continue.");
 
   const headers = new Headers(options.headers || {});
   headers.set("Authorization", `Bearer ${activeSession.access_token}`);
-  return fetch(url, { ...options, headers });
+  return fetchWithTimeout(url, { ...options, headers }, timeoutMs);
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`The request timed out after ${Math.ceil(timeoutMs / 1000)} seconds. Check your connection and try again.`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]).finally(() => window.clearTimeout(timeoutId));
+}
+
+function showChatLoadError(error, session) {
+  const message = `Could not load your chats: ${error.message}`;
+  statusText.textContent = message;
+  chatMessages.replaceChildren();
+  const prompt = document.createElement("p");
+  prompt.className = "chat-empty";
+  prompt.textContent = message;
+  chatMessages.append(prompt);
+
+  [chatList, allChatList].forEach((list) => {
+    list.replaceChildren();
+    const notice = document.createElement("p");
+    notice.className = "sidebar-chat-empty";
+    notice.textContent = "Could not load chats.";
+    const retryButton = document.createElement("button");
+    retryButton.className = "sidebar-chat-item";
+    retryButton.type = "button";
+    retryButton.textContent = "Retry";
+    retryButton.addEventListener("click", () => applyAuthSession(session));
+    list.append(notice, retryButton);
+  });
+}
+
+async function migrateLocalChatsInBackground(userId) {
+  try {
+    const response = await apiFetch("/api/migrate-local-chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    const migration = await response.json();
+    if (!response.ok) throw new Error(migration.error || "Could not import existing chats.");
+    if (migration.migrated > 0 && activeSession?.user.id === userId) {
+      statusText.textContent = `Imported ${migration.migrated} existing chat${migration.migrated === 1 ? "" : "s"} to your account.`;
+      await refreshChatList();
+    }
+  } catch (error) {
+    if (activeSession?.user.id === userId) {
+      statusText.textContent = `Your chats are available, but local chat import failed: ${error.message}`;
+    }
+  }
 }
 
 async function loadSignedInUser(session) {
@@ -127,20 +201,19 @@ async function loadSignedInUser(session) {
   signInButton.hidden = true;
   signedInAccount.hidden = false;
   setChatAccess(false);
-
-  const migrationResponse = await apiFetch("/api/migrate-local-chats", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({})
-  });
-  const migration = await migrationResponse.json();
-  if (!migrationResponse.ok) throw new Error(migration.error || "Could not import existing chats.");
-  if (migration.migrated > 0) {
-    statusText.textContent = `Imported ${migration.migrated} existing chat${migration.migrated === 1 ? "" : "s"} to your account.`;
-  }
+  chatList.replaceChildren();
+  allChatList.replaceChildren();
+  const loading = document.createElement("p");
+  loading.className = "sidebar-chat-empty";
+  loading.textContent = "Loading your chats…";
+  chatList.append(loading.cloneNode(true));
+  allChatList.append(loading);
 
   await loadChats();
-  if (activeSession?.user.id === user.id) setChatAccess(true);
+  if (activeSession?.user.id === user.id) {
+    setChatAccess(true);
+    void migrateLocalChatsInBackground(user.id);
+  }
 }
 
 async function applyAuthSession(session) {
@@ -157,7 +230,19 @@ async function applyAuthSession(session) {
     if (activeSession?.user.id !== session.user.id) return;
   } catch (error) {
     if (activeSession?.user.id === session.user.id) {
-      statusText.textContent = error.message;
+      if (error.message === "Your sign-in has expired. Sign in again.") {
+        let clearErrorMessage = "";
+        try {
+          const { error: signOutError } = await supabaseClient.auth.signOut({ scope: "local" });
+          if (signOutError) throw signOutError;
+        } catch (signOutError) {
+          clearErrorMessage = `Your sign-in expired, but the saved session could not be cleared: ${signOutError.message}`;
+        }
+        showSignedOutState("Your session expired. Sign in again to load your chats.");
+        statusText.textContent = clearErrorMessage || "Your session expired. Sign in with Google again.";
+        return;
+      }
+      showChatLoadError(error, session);
       setChatAccess(false);
       loadedUserId = null;
     }
@@ -165,7 +250,7 @@ async function applyAuthSession(session) {
 }
 
 async function initializeAuth() {
-  const response = await fetch("/api/config");
+  const response = await fetchWithTimeout("/api/config", {}, API_REQUEST_TIMEOUT_MS);
   const config = await response.json();
   if (!response.ok) throw new Error(config.error || "Could not load sign-in settings.");
   if (!config.cloudConfigured) {
@@ -204,6 +289,7 @@ async function initializeAuth() {
       signOutButton.disabled = false;
     }
   });
+  settingsSignOutButton.addEventListener("click", () => signOutButton.click());
   supabaseClient.auth.onAuthStateChange((event, session) => {
     if (event === "INITIAL_SESSION") return;
     activeSession = session;
@@ -480,7 +566,7 @@ async function refreshChatList() {
   if (!response.ok) throw new Error(data.error || "Could not load saved chats.");
   renderChatList(data.chats);
   renderChatList(data.chats, allChatList);
-  return data.chats;
+  return { chats: data.chats, activeChat: data.activeChat || null };
 }
 
 function renderChat(chat) {
@@ -566,16 +652,20 @@ async function createChat() {
 }
 
 async function loadChats() {
-  const chats = await refreshChatList();
+  const { chats, activeChat } = await refreshChatList();
   if (chats.length === 0) {
     await createChat();
+    return;
+  }
+  if (activeChat) {
+    renderChat(activeChat);
     return;
   }
   await openChat(chats[0].id);
 }
 
 async function checkAiStatus() {
-  const response = await fetch("/api/status");
+  const response = await fetchWithTimeout("/api/status", {}, API_REQUEST_TIMEOUT_MS);
   if (!response.ok) throw new Error("Could not check Gemini API setup.");
   const data = await response.json();
   setupNote.textContent = data.aiConfigured
@@ -674,6 +764,19 @@ document.querySelectorAll("[data-command]").forEach((button) => {
 newChatButton.addEventListener("click", createChat);
 newChatPageButton.addEventListener("click", createChat);
 
-Promise.all([checkAiStatus(), initializeAuth()]).catch((error) => {
-  setupNote.textContent = error.message;
+checkAiStatus().catch((error) => {
+  setupNote.textContent = `Could not check Gemini API status: ${error.message}`;
+});
+
+initializeAuth().catch((error) => {
+  const message = `Could not initialize Aura: ${error.message}`;
+  setupNote.textContent = message;
+  statusText.textContent = message;
+  chatList.replaceChildren();
+  allChatList.replaceChildren();
+  const notice = document.createElement("p");
+  notice.className = "sidebar-chat-empty";
+  notice.textContent = message;
+  chatList.append(notice.cloneNode(true));
+  allChatList.append(notice);
 });

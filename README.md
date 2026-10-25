@@ -25,13 +25,13 @@ For a public HTTPS deployment, also configure `APP_ORIGIN` to the exact public o
 1. Install Python 3.
 2. Add the Gemini and Supabase values above to `.env`.
 3. Start Aura from its folder:
-   - Windows: `py server.py`
-   - Or: `python server.py`
+   - Windows PowerShell: `$env:PORT = "31389"; py server.py`
+   - Or: `python server.py` with `PORT=31389` set in the environment.
 4. Open `http://127.0.0.1:31389` in Chrome or Edge and select **Sign in / Sign up** to open the sign-in page. Choose **Continue with Google**; the first Google sign-in creates the account, and returning users sign in with the same Google account. Allow the local origin in Supabase's redirect URL allowlist.
 
-Keep the terminal running while using Aura. Do not open `index.html` directly; Aura needs its backend server. Without Supabase settings, localhost remains usable in local-only mode, but Google sign-in and cross-device sync are unavailable.
+Keep that terminal open while using Aura; closing it stops the website. Refresh the page after starting the server. Do not open `index.html` directly; Aura needs its backend server. Without Supabase settings, localhost remains usable in local-only mode, but Google sign-in and cross-device sync are unavailable.
 
-Use the sidebar to switch between Chat, Explore, saved Chats, web Search, and Settings. Web searches open Google results in a new tab.
+Use the sidebar to switch between Chat, Explore, saved Chats, web Search, and Settings. Web searches open Google results in the current tab; use the browser's Back button to return to Aura.
 
 ## Chats and privacy
 

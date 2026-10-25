@@ -402,7 +402,7 @@
       border-color: var(--line);
       background: rgba(255, 255, 255, 0.04);
     }
-    .primary:hover, .secondary:hover, .send:hover, .quick:hover { transform: translateY(-2px); }
+    .primary:hover, .secondary:hover, .send:hover, .quick:hover { filter: brightness(1.08); }
     button:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
     button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
