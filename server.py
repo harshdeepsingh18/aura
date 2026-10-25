@@ -33,6 +33,7 @@ SUPABASE_URL = ""
 SUPABASE_ANON_KEY = ""
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_MODEL = "gemini-3.1-flash-lite"
+GEMINI_REQUEST_TIMEOUT_SECONDS = 45
 MAX_REQUEST_BYTES = 4096
 MAX_CHAT_REQUEST_BYTES = 16 * 1024 * 1024
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
@@ -370,6 +371,10 @@ def supabase_is_configured():
         and not parsed_url.username
         and not parsed_url.password
     )
+
+
+def local_chat_fallback_available():
+    return not APP_ORIGIN and HOST in ("127.0.0.1", "localhost", "::1")
 
 
 def supabase_user(access_token):
@@ -729,12 +734,20 @@ def generate_gemini_reply(messages, attachment=None):
         method="POST",
     )
     try:
-        with urlopen(request, timeout=120) as response:
+        with urlopen(request, timeout=GEMINI_REQUEST_TIMEOUT_SECONDS) as response:
             result = json.loads(response.read())
     except HTTPError as error:
         service_message = extract_service_error_message(error.read())
         raise RuntimeError(f"Gemini API error (HTTP {error.code}): {service_message}") from None
-    except (URLError, TimeoutError):
+    except TimeoutError:
+        raise RuntimeError(
+            f"Gemini did not respond within {GEMINI_REQUEST_TIMEOUT_SECONDS} seconds. Please try again."
+        ) from None
+    except URLError as error:
+        if isinstance(error.reason, TimeoutError):
+            raise RuntimeError(
+                f"Gemini did not respond within {GEMINI_REQUEST_TIMEOUT_SECONDS} seconds. Please try again."
+            ) from None
         raise RuntimeError("Could not connect to the Gemini API. Check your internet connection.") from None
     except json.JSONDecodeError as error:
         raise RuntimeError("Gemini API returned an invalid response.") from error
@@ -864,7 +877,12 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         self._send_json(status, {"error": message})
 
     def _uses_local_chat_storage(self):
-        return not APP_ORIGIN and not supabase_is_configured()
+        return (
+            not supabase_is_configured() and not APP_ORIGIN
+        ) or (
+            local_chat_fallback_available()
+            and self.headers.get("X-Aura-Local-Only") == "true"
+        )
 
     def _read_json_body(self, max_bytes=MAX_REQUEST_BYTES):
         content_type = self.headers.get("Content-Type", "")
@@ -909,6 +927,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
                     "supabaseUrl": SUPABASE_URL,
                     "supabaseAnonKey": SUPABASE_ANON_KEY,
                     "appOrigin": APP_ORIGIN,
+                    "localFallbackAvailable": local_chat_fallback_available(),
                 },
             )
             return

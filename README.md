@@ -29,7 +29,7 @@ For a public HTTPS deployment, also configure `APP_ORIGIN` to the exact public o
    - Or: `python server.py` with `PORT=31389` set in the environment.
 4. Open `http://127.0.0.1:31389` in Chrome or Edge and select **Sign in / Sign up** to open the sign-in page. Choose **Continue with Google**; the first Google sign-in creates the account, and returning users sign in with the same Google account. Allow the local origin in Supabase's redirect URL allowlist.
 
-Keep that terminal open while using Aura; closing it stops the website. Refresh the page after starting the server. Do not open `index.html` directly; Aura needs its backend server. Without Supabase settings, localhost remains usable in local-only mode, but Google sign-in and cross-device sync are unavailable.
+Keep that terminal open while using Aura; closing it stops the website. Refresh the page after starting the server. Do not open `index.html` directly; Aura needs its backend server. If Supabase is unreachable while Aura runs on your own computer, chat remains available using local chats stored only on that computer. Cloud chat sync resumes when Supabase is reachable and you are signed in. Local fallback is not available on public deployments.
 
 Use the sidebar to switch between Chat, Explore, saved Chats, web Search, and Settings. Web searches open Google results in the current tab; use the browser's Back button to return to Aura.
 
@@ -37,6 +37,6 @@ Use the sidebar to switch between Chat, Explore, saved Chats, web Search, and Se
 
 Use **Your chats** to reopen conversations, **+** to start a new chat, and **×** to delete a chat after confirmation. On the first sign-in, Aura copies existing local chats from `data/chats.json` (or legacy `data/history.json`) into the first Google account. The local files are retained. Later chats are stored in Supabase and are scoped to the signed-in account by row-level security.
 
-Chat prompts and supported attachments are sent to Google's Gemini API using the `gemini-3.1-flash-lite` model. API usage may incur charges under your Gemini account. Attachments are limited to 10 MB and are not retained in chat history.
+Chat prompts and supported attachments are sent to Google's Gemini API using the `gemini-3.1-flash-lite` model. Gemini requests time out after 45 seconds and show an error if the service does not respond. API usage may incur charges under your Gemini account. Attachments are limited to 10 MB and are not retained in chat history.
 
 Voice input works best in Chrome or Edge. Website and desktop app actions are available only when Aura runs locally; a cloud-hosted server cannot open them on a user's computer.

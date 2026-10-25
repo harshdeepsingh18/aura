@@ -32,7 +32,7 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 const MAX_CONVERSATION_MESSAGES = 10;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const API_REQUEST_TIMEOUT_MS = 45000;
-const AI_REQUEST_TIMEOUT_MS = 135000;
+const AI_REQUEST_TIMEOUT_MS = 115000;
 let recognition;
 let conversation = [];
 let selectedChatId = null;
@@ -42,6 +42,8 @@ let supabaseClient = null;
 let activeSession = null;
 let loadedUserId = null;
 let localMode = false;
+let localFallbackAvailable = false;
+let localModeTouched = false;
 
 function setChatAccess(isSignedIn) {
   newChatButton.disabled = !isSignedIn;
@@ -95,7 +97,7 @@ function showPage(pageName) {
   });
 }
 
-showSignedOutState("Loading sign-in settings…");
+showSignedOutState("Sign in to load your saved chats.");
 
 signInButton.addEventListener("click", () => {
   window.location.href = "/auth";
@@ -103,7 +105,11 @@ signInButton.addEventListener("click", () => {
 
 async function apiFetch(url, options = {}) {
   const timeoutMs = url === "/api/chat" ? AI_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS;
-  if (localMode) return fetchWithTimeout(url, options, timeoutMs);
+  if (localMode) {
+    const headers = new Headers(options.headers || {});
+    headers.set("X-Aura-Local-Only", "true");
+    return fetchWithTimeout(url, { ...options, headers }, timeoutMs);
+  }
 
   const { data, error } = await withTimeout(
     supabaseClient.auth.getSession(),
@@ -132,6 +138,12 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+async function fetchCloudApi(url, session, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("Authorization", `Bearer ${session.access_token}`);
+  return fetchWithTimeout(url, { ...options, headers }, API_REQUEST_TIMEOUT_MS);
 }
 
 function withTimeout(promise, timeoutMs, message) {
@@ -205,7 +217,7 @@ async function loadSignedInUser(session) {
   allChatList.replaceChildren();
   const loading = document.createElement("p");
   loading.className = "sidebar-chat-empty";
-  loading.textContent = "Loading your chats…";
+  loading.textContent = "Your chats will appear here.";
   chatList.append(loading.cloneNode(true));
   allChatList.append(loading);
 
@@ -216,13 +228,87 @@ async function loadSignedInUser(session) {
   }
 }
 
+async function switchToLocalChatFallback(session, cause) {
+  localMode = true;
+  activeSession = session;
+  accountHint.textContent = "Local-only chats — cloud sync unavailable";
+  settingsAccountName.textContent = "Local-only mode";
+  settingsAccountEmail.textContent = "Cloud chats could not be reached. Local chats stay on this computer.";
+  statusText.textContent = "Cloud chats are unavailable. Opening local chats.";
+  try {
+    await loadChats();
+    if (activeSession?.user.id !== session.user.id) return;
+    setChatAccess(true);
+    statusText.textContent = `Using chats saved on this computer because cloud chats could not be loaded: ${cause.message}`;
+  } catch (error) {
+    showChatLoadError(error, session);
+    setChatAccess(false);
+    loadedUserId = null;
+  }
+}
+
+async function loadCloudChatsForSession(session) {
+  if (!localMode || localModeTouched || loadedUserId === session.user.id) return;
+
+  try {
+    const response = await fetchCloudApi("/api/chats", session);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not load cloud chats.");
+    if (localModeTouched || activeSession?.user.id !== session.user.id) return;
+
+    localMode = false;
+    loadedUserId = session.user.id;
+    const user = session.user;
+    const displayName = user.user_metadata?.full_name || user.user_metadata?.name
+      || user.email?.split("@")[0] || "Google user";
+    accountName.textContent = displayName;
+    accountEmail.textContent = user.email || "";
+    accountAvatar.textContent = displayName.slice(0, 1).toUpperCase();
+    settingsAccountName.textContent = displayName;
+    settingsAccountEmail.textContent = user.email || "";
+    accountHint.textContent = "Cloud chats synced";
+    signInButton.hidden = true;
+    signedInAccount.hidden = false;
+    settingsSignOutButton.hidden = false;
+    renderChatList(data.chats);
+    renderChatList(data.chats, allChatList);
+
+    if (data.activeChat) {
+      renderChat(data.activeChat);
+    } else {
+      selectedChatId = null;
+      await createChat(false);
+    }
+    setChatAccess(true);
+    statusText.textContent = "Cloud chat sync is connected.";
+    void migrateLocalChatsInBackground(user.id);
+  } catch (error) {
+    if (activeSession?.user.id === session.user.id) {
+      statusText.textContent = `Using chats saved on this computer. Cloud chats are unavailable: ${error.message}`;
+    }
+  }
+}
+
 async function applyAuthSession(session) {
   activeSession = session;
   if (!session) {
+    if (localMode) {
+      loadedUserId = null;
+      accountHint.textContent = "Local chats work without cloud sign-in";
+      settingsAccountName.textContent = "Local mode";
+      settingsAccountEmail.textContent = "Chats are stored on this computer.";
+      statusText.textContent = "Signed out of cloud sync. Local chats are still available.";
+      return;
+    }
     showSignedOutState();
     return;
   }
   if (loadedUserId === session.user.id) return;
+
+  if (localMode && localFallbackAvailable) {
+    void loadCloudChatsForSession(session);
+    return;
+  }
 
   loadedUserId = session.user.id;
   try {
@@ -230,6 +316,10 @@ async function applyAuthSession(session) {
     if (activeSession?.user.id !== session.user.id) return;
   } catch (error) {
     if (activeSession?.user.id === session.user.id) {
+      if (localFallbackAvailable) {
+        await switchToLocalChatFallback(session, error);
+        return;
+      }
       if (error.message === "Your sign-in has expired. Sign in again.") {
         let clearErrorMessage = "";
         try {
@@ -253,6 +343,26 @@ async function initializeAuth() {
   const response = await fetchWithTimeout("/api/config", {}, API_REQUEST_TIMEOUT_MS);
   const config = await response.json();
   if (!response.ok) throw new Error(config.error || "Could not load sign-in settings.");
+  localFallbackAvailable = config.localFallbackAvailable === true;
+  if (localFallbackAvailable && config.cloudConfigured) {
+    localMode = true;
+    accountHint.textContent = "Local chats work without cloud sign-in";
+    settingsAccountName.textContent = "Local mode";
+    settingsAccountEmail.textContent = "Chats are stored on this computer. Cloud sync will connect when available.";
+    statusText.textContent = "Ready. Connecting cloud sync in the background.";
+    try {
+      const { chats, activeChat } = await refreshChatList();
+      if (activeChat) renderChat(activeChat);
+      else if (chats.length === 0) await createChat(false);
+      else await openChat(chats[0].id);
+      setChatAccess(true);
+      statusText.textContent = "Ready. Chats are saved on this computer while cloud sync connects.";
+    } catch (error) {
+      showChatLoadError(error, null);
+      setChatAccess(false);
+      return;
+    }
+  }
   if (!config.cloudConfigured) {
     if (config.localMode) {
       localMode = true;
@@ -295,7 +405,11 @@ async function initializeAuth() {
     activeSession = session;
     window.setTimeout(() => applyAuthSession(session), 0);
   });
-  const { data, error } = await supabaseClient.auth.getSession();
+  const { data, error } = await withTimeout(
+    supabaseClient.auth.getSession(),
+    API_REQUEST_TIMEOUT_MS,
+    "Checking cloud sign-in timed out. Local chats are still available."
+  );
   if (error) throw error;
   await applyAuthSession(data.session);
 }
@@ -598,6 +712,7 @@ async function deleteChat(chatId, title) {
   if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
 
   try {
+    if (localMode) localModeTouched = true;
     const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`, { method: "DELETE" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not delete this chat.");
@@ -619,6 +734,7 @@ async function deleteChat(chatId, title) {
 
 async function openChat(chatId) {
   try {
+    if (localMode) localModeTouched = true;
     const response = await apiFetch(`/api/chats/${encodeURIComponent(chatId)}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not open this chat.");
@@ -629,9 +745,10 @@ async function openChat(chatId) {
   }
 }
 
-async function createChat() {
+async function createChat(userInitiated = true) {
   newChatButton.disabled = true;
   try {
+    if (localMode && userInitiated) localModeTouched = true;
     const response = await apiFetch("/api/chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -676,12 +793,20 @@ async function checkAiStatus() {
 async function sendChat(rawMessage) {
   const content = rawMessage.trim();
   if (!content) return;
+  if (localMode) localModeTouched = true;
 
   transcript.textContent = `You said: “${content}”`;
   const displayContent = selectedFile ? `${content}\n📎 ${selectedFile.name}` : content;
   addChatMessage("user", displayContent);
   statusText.textContent = "Aura is thinking…";
   const loadingIndicator = addLoadingIndicator();
+  const slowResponseTimer = window.setTimeout(() => {
+    const label = loadingIndicator.querySelector(".typing-label");
+    if (!label) return;
+    label.textContent = "Still waiting for a response";
+    loadingIndicator.setAttribute("aria-label", "Still waiting for a response");
+    statusText.textContent = "This is taking longer than usual. Still waiting for a response…";
+  }, 15000);
   commandInput.disabled = true;
   document.querySelector(".send").disabled = true;
 
@@ -711,6 +836,7 @@ async function sendChat(rawMessage) {
     addChatMessage("assistant", error.message);
     statusText.textContent = error.message;
   } finally {
+    window.clearTimeout(slowResponseTimer);
     commandInput.disabled = false;
     document.querySelector(".send").disabled = false;
     commandInput.focus();
@@ -769,6 +895,10 @@ checkAiStatus().catch((error) => {
 });
 
 initializeAuth().catch((error) => {
+  if (localMode) {
+    statusText.textContent = `Local chats are ready. Cloud sign-in is unavailable: ${error.message}`;
+    return;
+  }
   const message = `Could not initialize Aura: ${error.message}`;
   setupNote.textContent = message;
   statusText.textContent = message;
