@@ -7,7 +7,9 @@ const orbWrap = document.getElementById("orbWrap");
 const commandInput = document.getElementById("commandInput");
 const chatMessages = document.getElementById("chatMessages");
 const chatList = document.getElementById("chatList");
+const allChatList = document.getElementById("allChatList");
 const newChatButton = document.getElementById("newChatButton");
+const newChatPageButton = document.getElementById("newChatPageButton");
 const signInButton = document.getElementById("signInButton");
 const signOutButton = document.getElementById("signOutButton");
 const signedInAccount = document.getElementById("signedInAccount");
@@ -15,6 +17,9 @@ const accountHint = document.getElementById("accountHint");
 const accountName = document.getElementById("accountName");
 const accountEmail = document.getElementById("accountEmail");
 const accountAvatar = document.getElementById("accountAvatar");
+const settingsAccountName = document.getElementById("settingsAccountName");
+const settingsAccountEmail = document.getElementById("settingsAccountEmail");
+const settingsSignOutButton = document.getElementById("settingsSignOutButton");
 const attachmentInput = document.getElementById("attachmentInput");
 const attachmentButton = document.getElementById("attachmentButton");
 const chooseFileButton = document.getElementById("chooseFileButton");
@@ -48,6 +53,7 @@ function setChatAccess(isSignedIn) {
   document.querySelectorAll("[data-command]").forEach((button) => {
     button.disabled = !isSignedIn;
   });
+  settingsSignOutButton.addEventListener("click", () => signOutButton.click());
 }
 
 function showSignedOutState(message = "Sign in with Google to see your saved chats.") {
@@ -59,16 +65,33 @@ function showSignedOutState(message = "Sign in with Google to see your saved cha
   setChatAccess(false);
   signedInAccount.hidden = true;
   signInButton.hidden = false;
+  settingsAccountName.textContent = "Not signed in";
+  settingsAccountEmail.textContent = "Sign in with Google to sync your chats.";
+  settingsSignOutButton.hidden = true;
   chatList.replaceChildren();
+  allChatList.replaceChildren();
   const empty = document.createElement("p");
   empty.className = "sidebar-chat-empty";
   empty.textContent = message;
-  chatList.append(empty);
+  chatList.append(empty.cloneNode(true));
+  allChatList.append(empty);
   chatMessages.replaceChildren();
   const prompt = document.createElement("p");
   prompt.className = "chat-empty";
   prompt.textContent = "Sign in with Google to start chatting and save your conversations.";
   chatMessages.append(prompt);
+}
+
+function showPage(pageName) {
+  document.querySelectorAll(".view-page").forEach((page) => {
+    page.hidden = page.dataset.page !== pageName;
+  });
+  document.querySelectorAll("[data-page-target]").forEach((button) => {
+    const isCurrentPage = button.dataset.pageTarget === pageName;
+    button.classList.toggle("active", isCurrentPage);
+    if (isCurrentPage) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
 }
 
 showSignedOutState("Loading sign-in settings…");
@@ -97,6 +120,9 @@ async function loadSignedInUser(session) {
   accountName.textContent = displayName;
   accountEmail.textContent = user.email || "";
   accountAvatar.textContent = displayName.slice(0, 1).toUpperCase();
+  settingsAccountName.textContent = displayName;
+  settingsAccountEmail.textContent = user.email || "";
+  settingsSignOutButton.hidden = false;
   accountHint.textContent = "Continue with Google";
   signInButton.hidden = true;
   signedInAccount.hidden = false;
@@ -146,6 +172,8 @@ async function initializeAuth() {
     if (config.localMode) {
       localMode = true;
       accountHint.textContent = "Local only — configure Supabase to sign in";
+      settingsAccountName.textContent = "Local mode";
+      settingsAccountEmail.textContent = "Chats are saved on this computer.";
       statusText.textContent = "Chats are saved only on this computer until Supabase is configured.";
       await loadChats();
       setChatAccess(true);
@@ -285,19 +313,9 @@ removeAttachmentButton.addEventListener("click", () => {
   showSelectedAttachment(null);
 });
 
-document.querySelectorAll("[data-scroll-target]").forEach((button) => {
+document.querySelectorAll("[data-page-target]").forEach((button) => {
   button.addEventListener("click", () => {
-    const target = document.getElementById(button.dataset.scrollTarget);
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
-    if (button.classList.contains("nav-item")) {
-      document.querySelectorAll(".nav-item").forEach((item) => {
-        item.classList.remove("active");
-        item.removeAttribute("aria-current");
-      });
-      button.classList.add("active");
-      button.setAttribute("aria-current", "page");
-    }
+    showPage(button.dataset.pageTarget);
   });
 });
 
@@ -420,13 +438,13 @@ function addLoadingIndicator() {
   return indicator;
 }
 
-function renderChatList(chats) {
-  chatList.replaceChildren();
+function renderChatList(chats, target = chatList) {
+  target.replaceChildren();
   if (chats.length === 0) {
     const empty = document.createElement("p");
     empty.className = "sidebar-chat-empty";
     empty.textContent = "No chats yet.";
-    chatList.append(empty);
+    target.append(empty);
     return;
   }
 
@@ -452,7 +470,7 @@ function renderChatList(chats) {
     deleteButton.addEventListener("click", () => deleteChat(chat.id, chat.title || "New chat"));
 
     row.append(selectButton, deleteButton);
-    chatList.append(row);
+    target.append(row);
   });
 }
 
@@ -461,6 +479,7 @@ async function refreshChatList() {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Could not load saved chats.");
   renderChatList(data.chats);
+  renderChatList(data.chats, allChatList);
   return data.chats;
 }
 
@@ -484,6 +503,9 @@ function renderChat(chat) {
   chatList.querySelectorAll(".sidebar-chat-item").forEach((button) => {
     button.setAttribute("aria-current", String(button.dataset.chatId === selectedChatId));
   });
+  allChatList.querySelectorAll(".sidebar-chat-item").forEach((button) => {
+    button.setAttribute("aria-current", String(button.dataset.chatId === selectedChatId));
+  });
 }
 
 async function deleteChat(chatId, title) {
@@ -495,6 +517,7 @@ async function deleteChat(chatId, title) {
     if (!response.ok) throw new Error(data.error || "Could not delete this chat.");
 
     renderChatList(data.chats);
+    renderChatList(data.chats, allChatList);
     if (chatId === selectedChatId) {
       selectedChatId = null;
       if (data.chats.length > 0) {
@@ -514,6 +537,7 @@ async function openChat(chatId) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Could not open this chat.");
     renderChat(data.chat);
+    showPage("chat");
   } catch (error) {
     statusText.textContent = error.message;
   }
@@ -531,6 +555,8 @@ async function createChat() {
     if (!response.ok) throw new Error(data.error || "Could not create a new chat.");
     renderChat(data.chat);
     renderChatList(data.chats);
+    renderChatList(data.chats, allChatList);
+    showPage("chat");
     commandInput.focus();
   } catch (error) {
     statusText.textContent = error.message;
@@ -646,6 +672,7 @@ document.querySelectorAll("[data-command]").forEach((button) => {
 });
 
 newChatButton.addEventListener("click", createChat);
+newChatPageButton.addEventListener("click", createChat);
 
 Promise.all([checkAiStatus(), initializeAuth()]).catch((error) => {
   setupNote.textContent = error.message;

@@ -227,6 +227,59 @@
       box-shadow: 0 28px 100px rgba(0, 0, 0, 0.38);
       backdrop-filter: blur(18px);
     }
+    .view-page[hidden] { display: none; }
+    .page-heading h1 { font-size: clamp(2rem, 6vw, 3rem); }
+    .page-heading .subtitle { margin-bottom: 28px; }
+    .page-actions { display: flex; justify-content: flex-end; margin: 0 0 14px; }
+    .page-new-chat { min-width: 0; min-height: 42px; border-radius: 12px; }
+    .page-chat-list { display: grid; gap: 7px; }
+    .page-chat-list .sidebar-chat-row {
+      min-height: 52px;
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(9, 15, 28, 0.42);
+    }
+    .page-chat-list .sidebar-chat-item { padding: 12px; }
+    .page-chat-list .sidebar-chat-delete { width: 36px; height: 36px; }
+    .settings-panel {
+      margin-top: 14px;
+      padding: 20px 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(9, 15, 28, 0.42);
+    }
+    .settings-panel h2 { margin: 0 0 12px; font-size: 1rem; }
+    .settings-panel p { color: var(--muted); line-height: 1.6; }
+    .settings-account-name { margin: 0; color: var(--text) !important; font-weight: 650; }
+    .settings-account-email { margin: 4px 0 16px; font-size: 0.88rem; }
+    .settings-sign-out { min-height: 40px; }
+    .web-search-form {
+      display: flex;
+      max-width: 680px;
+      gap: 10px;
+      margin: 36px auto 0;
+    }
+    .web-search-form input {
+      min-width: 0;
+      flex: 1;
+      min-height: 50px;
+      padding: 0 16px;
+      border: 1px solid rgba(74, 119, 190, 0.42);
+      border-radius: 13px;
+      color: var(--text);
+      background: rgba(9, 15, 28, 0.72);
+    }
+    .web-search-form .primary { min-width: 110px; padding: 0 20px; }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      clip-path: inset(50%);
+    }
 
     header { text-align: center; }
     .brand {
@@ -634,6 +687,8 @@
       .compose-input-row { gap: 6px; }
       .command-form #commandInput { font-size: 0.92rem; }
       .command-form .send { width: 34px; min-width: 34px; min-height: 34px; }
+      .web-search-form { flex-direction: column; }
+      .web-search-form .primary { width: 100%; }
     }
     @media (max-width: 430px) {
       .sidebar { padding: 8px; }

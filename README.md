@@ -31,6 +31,8 @@ For a public HTTPS deployment, also configure `APP_ORIGIN` to the exact public o
 
 Keep the terminal running while using Aura. Do not open `index.html` directly; Aura needs its backend server. Without Supabase settings, localhost remains usable in local-only mode, but Google sign-in and cross-device sync are unavailable.
 
+Use the sidebar to switch between Chat, Explore, saved Chats, web Search, and Settings. Web searches open Google results in a new tab.
+
 ## Chats and privacy
 
 Use **Your chats** to reopen conversations, **+** to start a new chat, and **×** to delete a chat after confirmation. On the first sign-in, Aura copies existing local chats from `data/chats.json` (or legacy `data/history.json`) into the first Google account. The local files are retained. Later chats are stored in Supabase and are scoped to the signed-in account by row-level security.

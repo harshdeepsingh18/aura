@@ -10,21 +10,24 @@
 <body>
   <div class="workspace-shell">
     <aside class="sidebar" aria-label="Aura navigation">
-      <a class="sidebar-brand" href="#chatSection">
+      <a class="sidebar-brand" href="/">
         <span class="sidebar-logo" aria-hidden="true">✦</span>
         <span class="sidebar-brand-copy"><strong>Aura</strong><small>Your AI Companion</small></span>
       </a>
       <nav class="sidebar-nav" aria-label="Main menu">
-        <button class="nav-item active" type="button" data-scroll-target="chatSection" aria-current="page">
+        <button class="nav-item active" type="button" data-page-target="chat" aria-current="page">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-9.5A7.5 7.5 0 0 1 10.5 4h2A7.5 7.5 0 0 1 20 11.5Z"/></svg><span>Chat</span>
         </button>
-        <button class="nav-item" type="button" data-scroll-target="exploreSection">
+        <button class="nav-item" type="button" data-page-target="explore">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"/></svg><span>Explore</span>
         </button>
-        <button class="nav-item" type="button" data-scroll-target="savedChats">
+        <button class="nav-item" type="button" data-page-target="chats">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-9.5A7.5 7.5 0 0 1 10.5 4h2A7.5 7.5 0 0 1 20 11.5Z"/><path d="M8 10h7M8 13h5"/></svg><span>Chats</span>
         </button>
-        <button class="nav-item" type="button" data-scroll-target="setupNote">
+        <button class="nav-item" type="button" data-page-target="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><span>Search</span>
+        </button>
+        <button class="nav-item" type="button" data-page-target="settings">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-.5 2.1a7.4 7.4 0 0 0-1.7 1l-2-.7-1.5 2.6 1.5 1.5a7 7 0 0 0 0 2l-1.5 1.5 1.5 2.6 2-.7a7.4 7.4 0 0 0 1.7 1L10 19h4l.5-2.1a7.4 7.4 0 0 0 1.7-1l2 .7 1.5-2.6-1.5-1.5a7 7 0 0 0 0-2l1.5-1.5-1.5-2.6-2 .7a7.4 7.4 0 0 0-1.7-1L14 3h-4Z"/><circle cx="12" cy="11.5" r="2.5"/></svg><span>Settings</span>
         </button>
       </nav>
@@ -57,6 +60,7 @@
       </div>
     </aside>
     <main class="app">
+    <section class="view-page" data-page="chat" id="chatPage">
     <header>
       <div class="brand"><span class="brand-mark"></span> Aura voice assistant</div>
       <h1>Talk to Aura.</h1>
@@ -75,8 +79,6 @@
 
     <div class="status" id="status" role="status" aria-live="polite">Ready when you are</div>
     <div class="transcript" id="transcript">Try asking anything, or say “open YouTube”</div>
-    <p class="setup-note" id="setupNote" role="status">Checking Gemini API setup…</p>
-
     <div class="controls">
       <button class="primary" id="listenButton" type="button">Start listening</button>
       <button class="secondary" id="stopButton" type="button" disabled>Stop</button>
@@ -119,7 +121,16 @@
       </div>
     </form>
 
-    <section class="examples" id="exploreSection" aria-label="Command examples">
+    <footer>Voice input works best in Chrome or Edge. Website and desktop app actions are available only when Aura runs locally.<br>Photos, PDFs, and text files up to 10 MB are sent to Gemini with your question. Do not upload sensitive information.</footer>
+    </section>
+
+    <section class="view-page" data-page="explore" id="explorePage" hidden>
+      <header class="page-heading">
+        <div class="brand"><span class="brand-mark"></span> Aura assistant</div>
+        <h1>Explore</h1>
+        <p class="subtitle">Choose a prompt to start a conversation with Aura.</p>
+      </header>
+      <section class="examples" aria-label="Command examples">
       <p class="section-label">Try asking</p>
       <div class="quick-list">
         <button class="quick" type="button" data-command="Explain something interesting about space">Explain something</button>
@@ -127,8 +138,53 @@
         <button class="quick" type="button" data-command="Open YouTube">Open YouTube</button>
         <button class="quick" type="button" data-command="Open Notepad">Open Notepad</button>
       </div>
+      </section>
     </section>
-    <footer>Voice input works best in Chrome or Edge. Website and desktop app actions are available only when Aura runs locally.<br>Photos, PDFs, and text files up to 10 MB are sent to Gemini with your question. Do not upload sensitive information.</footer>
+
+    <section class="view-page" data-page="chats" id="chatsPage" hidden>
+      <header class="page-heading">
+        <div class="brand"><span class="brand-mark"></span> Aura assistant</div>
+        <h1>Your chats</h1>
+        <p class="subtitle">Open a saved conversation or start a new one.</p>
+      </header>
+      <div class="page-actions">
+        <button class="primary page-new-chat" id="newChatPageButton" type="button">＋ New chat</button>
+      </div>
+      <div class="page-chat-list" id="allChatList" aria-live="polite">
+        <p class="sidebar-chat-empty">Loading chats…</p>
+      </div>
+    </section>
+
+    <section class="view-page" data-page="search" id="searchPage" hidden>
+      <header class="page-heading">
+        <div class="brand"><span class="brand-mark"></span> Aura assistant</div>
+        <h1>Search the web</h1>
+        <p class="subtitle">Search Google for current information. Results open in a new tab.</p>
+      </header>
+      <form class="web-search-form" action="https://www.google.com/search" method="get" target="_blank" rel="noopener">
+        <label class="visually-hidden" for="webSearchInput">Search the web</label>
+        <input id="webSearchInput" name="q" type="search" maxlength="300" placeholder="What would you like to find?" required>
+        <button class="primary" type="submit">Search</button>
+      </form>
+    </section>
+
+    <section class="view-page" data-page="settings" id="settingsPage" hidden>
+      <header class="page-heading">
+        <div class="brand"><span class="brand-mark"></span> Aura assistant</div>
+        <h1>Settings</h1>
+        <p class="subtitle">Your account and service status.</p>
+      </header>
+      <div class="settings-panel">
+        <h2>Account</h2>
+        <p class="settings-account-name" id="settingsAccountName">Checking sign-in…</p>
+        <p class="settings-account-email" id="settingsAccountEmail"></p>
+        <button class="secondary settings-sign-out" id="settingsSignOutButton" type="button" hidden>Sign out</button>
+      </div>
+      <div class="settings-panel">
+        <h2>AI service</h2>
+        <p class="settings-status" id="setupNote" role="status">Checking Gemini API setup…</p>
+      </div>
+    </section>
     </main>
   </div>
 
