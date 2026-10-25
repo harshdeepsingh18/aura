@@ -54,7 +54,7 @@ function makeActionPrompt(action, confirmationToken) {
   approveButton.type = "button";
   approveButton.textContent = action.type === "open-url"
     ? `Approve and open ${new URL(action.url).hostname}`
-    : `Approve and open ${action.app === "notepad" ? "Notepad" : "Calculator"}`;
+    : `Approve and open ${action.appName || "the app"}`;
   const cancelButton = document.createElement("button");
   cancelButton.type = "button";
   cancelButton.className = "cancel-action";

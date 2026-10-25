@@ -37,6 +37,11 @@ ALLOWED_APPS = {
     "notepad": ("notepad.exe", "Notepad"),
     "calculator": ("calc.exe", "Calculator"),
 }
+APP_SHORTCUT_DIRS = [
+    Path(os.environ[key]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+    for key in ("APPDATA", "PROGRAMDATA")
+    if os.environ.get(key)
+]
 AI_TOOLS = [
     {
         "type": "function",
@@ -60,14 +65,13 @@ AI_TOOLS = [
         "type": "function",
         "function": {
             "name": "launch_app",
-            "description": "Propose opening an explicitly allowlisted desktop app when directly asked.",
+            "description": "Propose opening an installed Windows Start Menu app when directly asked.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "app": {
                         "type": "string",
-                        "enum": sorted(ALLOWED_APPS),
-                        "description": "The exact allowlisted app identifier.",
+                        "description": "The exact name of an installed app from the allowed app list.",
                     }
                 },
                 "required": ["app"],
@@ -76,6 +80,34 @@ AI_TOOLS = [
         },
     },
 ]
+
+
+def available_desktop_apps():
+    apps = {app_id: (label, None) for app_id, (_, label) in ALLOWED_APPS.items()}
+    for directory in APP_SHORTCUT_DIRS:
+        try:
+            shortcuts = directory.rglob("*.lnk")
+            for shortcut in shortcuts:
+                label = shortcut.stem.strip()
+                if label:
+                    apps.setdefault(label.casefold(), (label, shortcut))
+        except OSError:
+            continue
+    return apps
+
+
+def resolve_desktop_app(app_name):
+    if not isinstance(app_name, str):
+        return None
+    requested = app_name.strip().casefold()
+    apps = available_desktop_apps()
+    if requested in apps:
+        label, shortcut = apps[requested]
+        return requested, label, shortcut
+    for app_id, (label, shortcut) in apps.items():
+        if requested and (requested in label.casefold() or label.casefold() in requested):
+            return app_id, label, shortcut
+    return None
 
 
 def load_gemini_api_key():
@@ -98,7 +130,7 @@ SYSTEM_INSTRUCTION = (
     "You are Aura, a helpful conversational voice assistant. Answer general questions "
     "naturally and clearly. You have no live web access, so be honest about that. "
     "You may propose opening a website only when the user explicitly asks to open or visit "
-    "one, and may propose launching Notepad or Calculator only when explicitly requested. "
+    "one, and may propose launching an installed desktop app only when explicitly requested. "
     "Never claim an action has already happened. The user must approve every proposed action."
 )
 
@@ -134,18 +166,28 @@ def write_history(history):
 
 
 def launch_allowed_app(app_name):
-    executable, label = ALLOWED_APPS[app_name]
     if os.name != "nt":
         raise OSError("Opening desktop apps is supported only on Windows.")
-    subprocess.Popen(
-        [executable],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        shell=False,
-        close_fds=True,
-    )
-    return f"{label} is opening."
+    resolved = resolve_desktop_app(app_name)
+    if not resolved:
+        raise OSError("That app is not available in the Windows Start Menu.")
+    app_id, label, shortcut = resolved
+    if app_id in ALLOWED_APPS:
+        executable = ALLOWED_APPS[app_id][0]
+        subprocess.Popen(
+            [executable],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=False,
+            close_fds=True,
+        )
+        return f"{label} is opening."
+
+    if shortcut is not None and shortcut.is_file():
+        os.startfile(str(shortcut))
+        return f"{label} is opening."
+    raise OSError("That app shortcut is no longer available.")
 
 
 def issue_action_confirmation(app_name):
@@ -250,18 +292,30 @@ def gemini_status():
 
 
 def gemini_function_declarations():
-    return [
-        {
-            "name": tool["function"]["name"],
-            "description": tool["function"]["description"],
-            "parameters": {
-                key: value
-                for key, value in tool["function"]["parameters"].items()
-                if key != "additionalProperties"
-            },
+    declarations = []
+    for tool in AI_TOOLS:
+        parameters = {
+            key: value
+            for key, value in tool["function"]["parameters"].items()
+            if key != "additionalProperties"
         }
-        for tool in AI_TOOLS
-    ]
+        if tool["function"]["name"] == "launch_app":
+            properties = dict(parameters["properties"])
+            properties["app"] = {
+                **properties["app"],
+                "enum": sorted(
+                    label for label, _ in available_desktop_apps().values()
+                ),
+            }
+            parameters["properties"] = properties
+        declarations.append(
+            {
+                "name": tool["function"]["name"],
+                "description": tool["function"]["description"],
+                "parameters": parameters,
+            }
+        )
+    return declarations
 
 
 def generate_gemini_reply(messages):
@@ -277,8 +331,14 @@ def generate_gemini_reply(messages):
         }
         for message in messages
     ]
+    local_now = datetime.now().astimezone().strftime("%A, %B %d, %Y at %I:%M:%S %p %Z")
+    system_instruction = (
+        f"{SYSTEM_INSTRUCTION} The current local date and time is {local_now}. "
+        "Use this exact local date and time when asked; do not guess. "
+        "For app launch requests, choose an installed app from the launch_app function's allowed app list."
+    )
     payload = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
+        "systemInstruction": {"parts": [{"text": system_instruction}]},
         "contents": contents,
         "tools": [{"functionDeclarations": gemini_function_declarations()}],
         "toolConfig": {"functionCallingConfig": {"mode": "AUTO"}},
@@ -334,15 +394,17 @@ def generate_gemini_reply(messages):
                 reply_parts.append("I can't open that address. Aura only opens public HTTPS websites.")
         elif function_call.get("name") == "launch_app":
             app_name = arguments.get("app")
-            if isinstance(app_name, str) and app_name in ALLOWED_APPS:
-                action = {"type": "launch-app", "app": app_name}
+            resolved_app = resolve_desktop_app(app_name)
+            if resolved_app:
+                app_id, app_label, _ = resolved_app
+                action = {"type": "launch-app", "app": app_id, "appName": app_label}
 
     reply = "\n".join(part.strip() for part in reply_parts if part.strip())
     if action and not reply:
         if action["type"] == "open-url":
             reply = f"Would you like me to open {action['url']}?"
         else:
-            reply = f"Would you like me to open {ALLOWED_APPS[action['app']][1]}?"
+            reply = f"Would you like me to open {action['appName']}?"
     if action:
         reply = f"{reply}\n\nI haven't done this yet. Approve below to continue."
     if not reply:
