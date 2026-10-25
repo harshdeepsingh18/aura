@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b1020">
+  <title>Sign in or sign up — Aura</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="auth.css">
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <a class="auth-brand" href="/" aria-label="Aura home">
+      <span class="auth-logo" aria-hidden="true">✦</span>
+      <span>Aura</span>
+    </a>
+    <section class="auth-card" aria-labelledby="authTitle">
+      <div class="auth-icon" aria-hidden="true">✦</div>
+      <p class="auth-eyebrow">YOUR AI COMPANION</p>
+      <h1 id="authTitle">Welcome to Aura</h1>
+      <p class="auth-description">Sign in to continue to your chats, or create an account to get started.</p>
+      <button class="google-sign-in" id="googleSignInButton" type="button" disabled>
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.93c-.58 2.96-2.26 5.48-4.76 7.18l7.73 6C44.41 37.8 46.98 31.7 46.98 24.55Z"/>
+          <path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.2A23.9 23.9 0 0 0 0 24c0 3.87.93 7.53 2.56 10.78l7.97-6.19Z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.9-5.8l-7.73-6c-2.14 1.45-4.89 2.3-8.17 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 43.62 14.62 48 24 48Z"/>
+        </svg>
+        <span>Continue with Google</span>
+      </button>
+      <p class="auth-note">New to Aura? Your Google account will be used to create one. Already have an account? Sign in with the same Google account.</p>
+      <p class="auth-status" id="authStatus" role="status" aria-live="polite">Checking sign-in settings…</p>
+      <a class="back-home" href="/">← Back to Aura</a>
+    </section>
+    <p class="auth-footer">Your chats are private to your account.</p>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+  <script src="auth.js" defer></script>
+</body>
+</html>

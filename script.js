@@ -73,6 +73,10 @@ function showSignedOutState(message = "Sign in with Google to see your saved cha
 
 showSignedOutState("Loading sign-in settings…");
 
+signInButton.addEventListener("click", () => {
+  window.location.href = "/auth";
+});
+
 async function apiFetch(url, options = {}) {
   if (localMode) return fetch(url, options);
 
@@ -160,21 +164,6 @@ async function initializeAuth() {
 
   supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
     auth: { autoRefreshToken: true, detectSessionInUrl: true, persistSession: true }
-  });
-  signInButton.disabled = false;
-  signInButton.addEventListener("click", async () => {
-    signInButton.disabled = true;
-    try {
-      const { error } = await supabaseClient.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: config.appOrigin || window.location.origin }
-      });
-      if (error) throw error;
-    } catch (error) {
-      statusText.textContent = `Google sign-in failed: ${error.message}`;
-    } finally {
-      signInButton.disabled = false;
-    }
   });
   signOutButton.addEventListener("click", async () => {
     signOutButton.disabled = true;

@@ -965,6 +965,10 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         static_files = {
             "/": ("index.html", "text/html; charset=utf-8"),
             "/index.html": ("index.html", "text/html; charset=utf-8"),
+            "/auth": ("auth.html", "text/html; charset=utf-8"),
+            "/auth.html": ("auth.html", "text/html; charset=utf-8"),
+            "/auth.css": ("auth.css", "text/css; charset=utf-8"),
+            "/auth.js": ("auth.js", "text/javascript; charset=utf-8"),
             "/style.css": ("style.css", "text/css; charset=utf-8"),
             "/script.js": ("script.js", "text/javascript; charset=utf-8"),
         }
