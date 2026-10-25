@@ -8,10 +8,136 @@ const commandInput = document.getElementById("commandInput");
 const chatMessages = document.getElementById("chatMessages");
 const historyList = document.getElementById("historyList");
 const clearHistoryButton = document.getElementById("clearHistoryButton");
+const attachmentInput = document.getElementById("attachmentInput");
+const attachmentButton = document.getElementById("attachmentButton");
+const chooseFileButton = document.getElementById("chooseFileButton");
+const uploadMenu = document.getElementById("uploadMenu");
+const attachmentPreview = document.getElementById("attachmentPreview");
+const attachmentThumb = document.getElementById("attachmentThumb");
+const attachmentFileName = document.getElementById("attachmentFileName");
+const removeAttachmentButton = document.getElementById("removeAttachmentButton");
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const MAX_CONVERSATION_MESSAGES = 10;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 let recognition;
 let conversation = [];
+let selectedFile = null;
+let attachmentPreviewUrl = null;
+
+const ATTACHMENT_MIME_TYPES = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  pdf: "application/pdf",
+  txt: "text/plain",
+  md: "text/markdown",
+  csv: "text/csv",
+  json: "application/json"
+};
+
+function getAttachmentMimeType(file) {
+  if (Object.values(ATTACHMENT_MIME_TYPES).includes(file.type)) return file.type;
+  const extension = file.name.split(".").pop().toLowerCase();
+  return ATTACHMENT_MIME_TYPES[extension] || "";
+}
+
+function readAttachment(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      const comma = dataUrl.indexOf(",");
+      if (comma < 0) return reject(new Error("Aura couldn't read that file."));
+      resolve({
+        name: file.name,
+        mimeType: getAttachmentMimeType(file),
+        data: dataUrl.slice(comma + 1)
+      });
+    };
+    reader.onerror = () => reject(new Error("Aura couldn't read that file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function showSelectedAttachment(file) {
+  selectedFile = file;
+  attachmentPreview.hidden = !file;
+  attachmentThumb.replaceChildren();
+  attachmentFileName.textContent = file ? file.name : "";
+  if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
+  attachmentPreviewUrl = null;
+  if (!file) return;
+
+  const mimeType = getAttachmentMimeType(file);
+  if (mimeType.startsWith("image/")) {
+    const image = document.createElement("img");
+    image.alt = `Preview of ${file.name}`;
+    attachmentPreviewUrl = URL.createObjectURL(file);
+    image.src = attachmentPreviewUrl;
+    attachmentThumb.append(image);
+  } else {
+    const fileType = document.createElement("span");
+    fileType.className = "file-type-icon";
+    fileType.textContent = file.name.split(".").pop().slice(0, 4).toUpperCase();
+    attachmentThumb.append(fileType);
+  }
+}
+
+function setUploadMenuOpen(isOpen) {
+  uploadMenu.hidden = !isOpen;
+  attachmentButton.setAttribute("aria-expanded", String(isOpen));
+}
+
+attachmentButton.addEventListener("click", () => setUploadMenuOpen(uploadMenu.hidden));
+chooseFileButton.addEventListener("click", () => {
+  setUploadMenuOpen(false);
+  attachmentInput.click();
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".attachment-picker")) setUploadMenuOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setUploadMenuOpen(false);
+});
+attachmentInput.addEventListener("change", () => {
+  const file = attachmentInput.files[0] || null;
+  if (file && file.size > MAX_ATTACHMENT_BYTES) {
+    attachmentInput.value = "";
+    showSelectedAttachment(null);
+    statusText.textContent = "Choose a file smaller than 10 MB.";
+    return;
+  }
+  if (file && !getAttachmentMimeType(file)) {
+    attachmentInput.value = "";
+    showSelectedAttachment(null);
+    statusText.textContent = "Use a photo, PDF, TXT, Markdown, CSV, or JSON file.";
+    return;
+  }
+  showSelectedAttachment(file);
+  if (file) statusText.textContent = "File attached. Ask Aura a question about it.";
+});
+removeAttachmentButton.addEventListener("click", () => {
+  attachmentInput.value = "";
+  showSelectedAttachment(null);
+});
+
+document.querySelectorAll("[data-scroll-target]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const target = document.getElementById(button.dataset.scrollTarget);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (button.classList.contains("nav-item")) {
+      document.querySelectorAll(".nav-item").forEach((item) => {
+        item.classList.remove("active");
+        item.removeAttribute("aria-current");
+      });
+      button.classList.add("active");
+      button.setAttribute("aria-current", "page");
+    }
+  });
+});
 
 function openUrl(url) {
   const parsedUrl = new URL(url);
@@ -112,6 +238,26 @@ function addChatMessage(role, content, action) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+function addLoadingIndicator() {
+  const indicator = document.createElement("div");
+  indicator.className = "chat-message assistant typing-indicator";
+  indicator.setAttribute("role", "status");
+  indicator.setAttribute("aria-label", "Aura is thinking");
+  for (let index = 0; index < 3; index += 1) {
+    const dot = document.createElement("span");
+    dot.className = "typing-dot";
+    dot.setAttribute("aria-hidden", "true");
+    indicator.append(dot);
+  }
+  const label = document.createElement("span");
+  label.className = "typing-label";
+  label.textContent = "Aura is thinking";
+  indicator.append(label);
+  chatMessages.append(indicator);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return indicator;
+}
+
 function renderHistory(entries) {
   historyList.replaceChildren();
   if (entries.length === 0) {
@@ -126,6 +272,9 @@ function renderHistory(entries) {
     const item = document.createElement("li");
     item.className = "history-item";
     item.append(document.createTextNode(entry.command));
+    if (entry.attachmentName) {
+      item.append(document.createTextNode(`  📎 ${entry.attachmentName}`));
+    }
     const time = document.createElement("time");
     time.dateTime = entry.createdAt;
     time.textContent = new Date(entry.createdAt).toLocaleString();
@@ -139,14 +288,15 @@ async function loadHistory() {
   if (!response.ok) throw new Error("Could not load conversation history.");
   const data = await response.json();
   renderHistory(data.history);
-  conversation = data.history
+  const recentEntries = data.history
     .slice()
     .reverse()
+    .slice(-(MAX_CONVERSATION_MESSAGES / 2));
+  conversation = recentEntries
     .flatMap((entry) => [
       { role: "user", content: entry.command },
       { role: "assistant", content: entry.message }
     ])
-    .slice(-MAX_CONVERSATION_MESSAGES);
   chatMessages.replaceChildren();
   if (conversation.length === 0) {
     const empty = document.createElement("p");
@@ -155,10 +305,13 @@ async function loadHistory() {
     chatMessages.append(empty);
     return;
   }
-  for (let index = 0; index < conversation.length; index += 2) {
-    addChatMessage("user", conversation[index].content);
-    if (conversation[index + 1]) addChatMessage("assistant", conversation[index + 1].content);
-  }
+  recentEntries.forEach((entry) => {
+    const userContent = entry.attachmentName
+      ? `${entry.command}\n📎 ${entry.attachmentName}`
+      : entry.command;
+    addChatMessage("user", userContent);
+    addChatMessage("assistant", entry.message);
+  });
 }
 
 async function checkAiStatus() {
@@ -175,23 +328,27 @@ async function sendChat(rawMessage) {
   if (!content) return;
 
   transcript.textContent = `You said: “${content}”`;
-  addChatMessage("user", content);
+  const displayContent = selectedFile ? `${content}\n📎 ${selectedFile.name}` : content;
+  addChatMessage("user", displayContent);
   statusText.textContent = "Aura is thinking…";
+  const loadingIndicator = addLoadingIndicator();
   commandInput.disabled = true;
   document.querySelector(".send").disabled = true;
 
   const userMessage = { role: "user", content };
   const messages = [...conversation, userMessage].slice(-(MAX_CONVERSATION_MESSAGES + 1));
   try {
+    const attachment = selectedFile ? await readAttachment(selectedFile) : null;
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages })
+      body: JSON.stringify({ messages, attachment })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Aura could not get a response.");
     if (typeof data.reply !== "string") throw new Error("Aura received an invalid response.");
 
+    loadingIndicator.remove();
     conversation = [...messages, { role: "assistant", content: data.reply }]
       .slice(-MAX_CONVERSATION_MESSAGES);
     addChatMessage("assistant", data.reply, data.action || null);
@@ -199,6 +356,7 @@ async function sendChat(rawMessage) {
     speak(data.reply);
     await loadHistory();
   } catch (error) {
+    loadingIndicator.remove();
     addChatMessage("assistant", error.message);
     statusText.textContent = error.message;
   } finally {

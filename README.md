@@ -21,3 +21,5 @@ Keep the terminal running while you use Aura. Do not open `index.html` directly:
 Aura does not open a blank tab when listening starts. Ask Aura to open a website or launch Notepad/Calculator, then approve or cancel the proposed action. Websites are only opened after your approval; desktop actions are limited to Notepad and Calculator. Aura cannot control every app or do literally everything on your computer.
 
 Chat prompts are sent to Gemini's hosted API using the `gemini-3.1-flash-lite` model, so API usage may incur charges under your Gemini account. Conversation history is stored locally in `data/history.json`; use **Clear** in the page to delete it. The backend binds only to `127.0.0.1` and never runs arbitrary shell commands.
+
+Use **Add photo or file** to ask Gemini about a PNG, JPEG, WebP, or GIF photo, a PDF, or a TXT, Markdown, CSV, or JSON file. Attachments are limited to 10 MB, sent to Gemini with your question, and are not saved in local chat history.

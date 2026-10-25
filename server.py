@@ -1,3 +1,5 @@
+import base64
+import binascii
 import json
 import ipaddress
 import logging
@@ -26,10 +28,13 @@ PORT = int(os.environ.get("PORT", "3000"))
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 GEMINI_MODEL = "gemini-3.1-flash-lite"
 MAX_REQUEST_BYTES = 4096
-MAX_CHAT_REQUEST_BYTES = 128 * 1024
+MAX_CHAT_REQUEST_BYTES = 16 * 1024 * 1024
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_TEXT_ATTACHMENT_CHARACTERS = 100000
 HISTORY_LIMIT = 50
 MAX_CHAT_MESSAGES = 12
 MAX_CHAT_MESSAGE_LENGTH = 2000
+MAX_ASSISTANT_MESSAGE_LENGTH = 12000
 HISTORY_LOCK = threading.Lock()
 PENDING_ACTIONS_LOCK = threading.Lock()
 PENDING_ACTION_TTL_SECONDS = 120
@@ -373,23 +378,72 @@ def gemini_function_declarations():
     return declarations
 
 
-def generate_gemini_reply(messages):
+def parse_attachment(raw_attachment):
+    if raw_attachment is None:
+        return None
+    if not isinstance(raw_attachment, dict):
+        raise ValueError("The attached file is invalid.")
+
+    name = raw_attachment.get("name")
+    mime_type = raw_attachment.get("mimeType")
+    encoded_data = raw_attachment.get("data")
+    if not isinstance(name, str) or not name.strip() or not isinstance(encoded_data, str):
+        raise ValueError("The attached file is missing its name or contents.")
+    name = name.replace("\\", "/").split("/")[-1][:200]
+    allowed_mime_types = {
+        "image/png", "image/jpeg", "image/webp", "image/gif", "application/pdf",
+        "text/plain", "text/markdown", "text/csv", "application/json",
+    }
+    if mime_type not in allowed_mime_types:
+        raise ValueError("Use a PNG, JPEG, WebP, or GIF photo, a PDF, or a TXT, Markdown, CSV, or JSON file.")
+    try:
+        file_bytes = base64.b64decode(encoded_data, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("Aura couldn't read the attached file.") from None
+    if not file_bytes:
+        raise ValueError("The attached file is empty.")
+    if len(file_bytes) > MAX_ATTACHMENT_BYTES:
+        raise ValueError("Choose a file smaller than 10 MB.")
+
+    if mime_type.startswith("text/") or mime_type == "application/json":
+        text = file_bytes.decode("utf-8-sig", errors="replace")
+        if len(text) > MAX_TEXT_ATTACHMENT_CHARACTERS:
+            raise ValueError("Text files must contain 100,000 characters or fewer.")
+        return {"name": name, "mimeType": mime_type, "text": text}
+    return {"name": name, "mimeType": mime_type, "data": encoded_data}
+
+
+def generate_gemini_reply(messages, attachment=None):
     if not GEMINI_API_KEY:
         raise RuntimeError(
             "Gemini API key is missing. Add GEMINI_API_KEY to the .env file or environment, then restart Aura."
         )
 
-    contents = [
-        {
+    contents = []
+    for index, message in enumerate(messages):
+        parts = [{"text": message["content"]}]
+        if attachment is not None and index == len(messages) - 1:
+            if "text" in attachment:
+                parts.append({"text": f"Attached file {attachment['name']}:\n{attachment['text']}"})
+            else:
+                parts.append({"text": f"Attached file: {attachment['name']}"})
+                parts.append(
+                    {
+                        "inlineData": {
+                            "mimeType": attachment["mimeType"],
+                            "data": attachment["data"],
+                        }
+                    }
+                )
+        contents.append({
             "role": "user" if message["role"] == "user" else "model",
-            "parts": [{"text": message["content"]}],
-        }
-        for message in messages
-    ]
+            "parts": parts,
+        })
     local_now = datetime.now().astimezone().strftime("%A, %B %d, %Y at %I:%M:%S %p %Z")
     system_instruction = (
         f"{SYSTEM_INSTRUCTION} The current local date and time is {local_now}. "
         "Use this exact local date and time when asked; do not guess. "
+        "When the latest user message includes an attachment, use its contents to answer the user's question. "
         "For app launch requests, choose an installed app from the launch_app function's allowed app list."
     )
     payload = {
@@ -590,12 +644,17 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "Send up to 12 chat messages ending with your message."})
             return
         for message in messages:
+            message_limit = (
+                MAX_CHAT_MESSAGE_LENGTH
+                if isinstance(message, dict) and message.get("role") == "user"
+                else MAX_ASSISTANT_MESSAGE_LENGTH
+            )
             if (
                 not isinstance(message, dict)
                 or message.get("role") not in ("user", "assistant")
                 or not isinstance(message.get("content"), str)
                 or not message["content"].strip()
-                or len(message["content"]) > MAX_CHAT_MESSAGE_LENGTH
+                or len(message["content"]) > message_limit
             ):
                 self._send_json(400, {"error": "Each chat message must have a valid role and text."})
                 return
@@ -604,11 +663,17 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
+            attachment = parse_attachment(body.get("attachment"))
+        except ValueError as error:
+            self._send_json(400, {"error": str(error)})
+            return
+
+        try:
             direct_action = explicit_open_action(messages[-1]["content"])
             result = (
                 {"reply": "", "action": direct_action}
                 if direct_action
-                else generate_gemini_reply(messages)
+                else generate_gemini_reply(messages, attachment)
             )
         except RuntimeError as error:
             self._send_json(503, {"error": str(error)})
@@ -637,6 +702,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
                         "command": user_text,
                         "createdAt": datetime.now().astimezone().isoformat(),
                         "message": result["reply"],
+                        "attachmentName": attachment["name"] if attachment else None,
                     },
                 )
                 write_history(history[:HISTORY_LIMIT])

@@ -8,7 +8,39 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="app">
+  <div class="workspace-shell">
+    <aside class="sidebar" aria-label="Aura navigation">
+      <a class="sidebar-brand" href="#chatSection">
+        <span class="sidebar-logo" aria-hidden="true">✦</span>
+        <span class="sidebar-brand-copy"><strong>Aura</strong><small>Your AI Companion</small></span>
+      </a>
+      <nav class="sidebar-nav" aria-label="Main menu">
+        <button class="nav-item active" type="button" data-scroll-target="chatSection" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-9.5A7.5 7.5 0 0 1 10.5 4h2A7.5 7.5 0 0 1 20 11.5Z"/></svg><span>Chat</span>
+        </button>
+        <button class="nav-item" type="button" data-scroll-target="exploreSection">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2Z"/></svg><span>Explore</span>
+        </button>
+        <button class="nav-item" type="button" data-scroll-target="historySection">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>History</span>
+        </button>
+        <button class="nav-item" type="button" data-scroll-target="setupNote">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 3-.5 2.1a7.4 7.4 0 0 0-1.7 1l-2-.7-1.5 2.6 1.5 1.5a7 7 0 0 0 0 2l-1.5 1.5 1.5 2.6 2-.7a7.4 7.4 0 0 0 1.7 1L10 19h4l.5-2.1a7.4 7.4 0 0 0 1.7-1l2 .7 1.5-2.6-1.5-1.5a7 7 0 0 0 0-2l1.5-1.5-1.5-2.6-2 .7a7.4 7.4 0 0 0-1.7-1L14 3h-4Z"/><circle cx="12" cy="11.5" r="2.5"/></svg><span>Settings</span>
+        </button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="provider-card">
+          <span class="provider-sparkle" aria-hidden="true">✦</span>
+          <span><strong>Powered by Gemini</strong><small>Smarter. Faster. Together.</small></span>
+        </div>
+        <button class="account-card" type="button" data-scroll-target="setupNote">
+          <span class="account-avatar" aria-hidden="true">A</span>
+          <span class="account-copy"><strong>Local user</strong><small>Gemini API</small></span>
+          <svg class="account-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+        </button>
+      </div>
+    </aside>
+    <main class="app">
     <header>
       <div class="brand"><span class="brand-mark"></span> Aura voice assistant</div>
       <h1>Talk to Aura.</h1>
@@ -34,18 +66,44 @@
       <button class="secondary" id="stopButton" type="button" disabled>Stop</button>
     </div>
 
-    <section class="chat" aria-label="Conversation">
+    <section class="chat" id="chatSection" aria-label="Conversation">
       <div id="chatMessages" class="chat-messages" aria-live="polite">
         <p class="chat-empty">Your conversation with Aura will appear here.</p>
       </div>
     </section>
 
     <form class="command-form" id="commandForm">
-      <input id="commandInput" type="text" maxlength="2000" autocomplete="off" placeholder="Ask Aura anything…" aria-label="Message Aura">
-      <button class="send" type="submit">Send</button>
+      <div class="attachment-picker">
+        <input id="attachmentInput" class="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json,.md,.csv,.txt,.json">
+        <button class="attach" id="attachmentButton" type="button" aria-label="Add a photo or file" aria-expanded="false" aria-controls="uploadMenu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 6.7-6.7a3.2 3.2 0 0 1 4.5 4.5l-8.1 8.1a5 5 0 0 1-7.1-7.1l8.2-8.2"/></svg>
+        </button>
+        <div class="upload-menu" id="uploadMenu" role="menu" hidden>
+          <button class="upload-menu-item" id="chooseFileButton" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5 14.5 6a4 4 0 0 1 5.7 5.7l-8.5 8.5a6 6 0 0 1-8.5-8.5l8-8"/></svg>
+            <span>Upload files</span>
+          </button>
+          <div class="upload-menu-hint">Photos, PDFs, and text files</div>
+        </div>
+      </div>
+      <div class="composer-main">
+        <div class="attachment-preview" id="attachmentPreview" hidden>
+          <div class="attachment-preview-card">
+            <div class="attachment-thumb" id="attachmentThumb"></div>
+            <div class="attachment-file-name" id="attachmentFileName"></div>
+            <button class="remove-attachment" id="removeAttachmentButton" type="button" aria-label="Remove attached file">×</button>
+          </div>
+        </div>
+        <div class="compose-input-row">
+          <input id="commandInput" type="text" maxlength="2000" autocomplete="off" placeholder="Ask Aura anything…" aria-label="Message Aura">
+          <button class="send" type="submit" aria-label="Send message">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-7.2 18-3.9-7.9L2 9.2 21 3Z"/><path d="M9.9 13.1 21 3"/></svg>
+          </button>
+        </div>
+      </div>
     </form>
 
-    <section class="examples" aria-label="Command examples">
+    <section class="examples" id="exploreSection" aria-label="Command examples">
       <p class="section-label">Try asking</p>
       <div class="quick-list">
         <button class="quick" type="button" data-command="Explain something interesting about space">Explain something</button>
@@ -54,7 +112,7 @@
         <button class="quick" type="button" data-command="Open Notepad">Open Notepad</button>
       </div>
     </section>
-    <section class="history" aria-label="Recent commands">
+    <section class="history" id="historySection" aria-label="Recent commands">
       <div class="history-heading">
         <p class="section-label">Recent commands</p>
         <button class="clear-history" id="clearHistoryButton" type="button">Clear</button>
@@ -63,8 +121,9 @@
         <li class="history-empty">Loading command history…</li>
       </ul>
     </section>
-    <footer>Voice input works best in Chrome or Edge. Aura asks before opening a website or launching an app.<br>Chat prompts are sent to Gemini's API. Do not enter passwords or other sensitive information.</footer>
-  </main>
+    <footer>Voice input works best in Chrome or Edge. Aura opens websites and apps when you ask.<br>Photos, PDFs, and text files up to 10 MB are sent to Gemini with your question. Attachments are not saved in chat history. Do not upload sensitive information.</footer>
+    </main>
+  </div>
 
   <script src="script.js" defer></script>
 </body>
