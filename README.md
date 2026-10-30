@@ -1,4 +1,4 @@
-# Aura Voice Assistant
+# Aura AI
 
 Aura is a Python web app with AI chat powered by Google's Gemini API. It supports local-only chats or Google sign-in with Supabase-backed chat history that follows the signed-in user across devices.
 
@@ -23,6 +23,8 @@ Aura is a Python web app with AI chat powered by Google's Gemini API. It support
 
 The app loads Supabase's browser client from jsDelivr only when cloud sign-in is configured. Google sign-in is handled by Supabase Auth; Aura's Python server verifies each user's Supabase access token before accessing chat endpoints. Chats are stored in Supabase and protected by database row-level security. Existing local chats in `data/chats.json` or `data/history.json` are not uploaded automatically; they remain on the computer where they were created.
 
+After Google sign-in, new users complete a short profile with their first name, last name, and a self-reported answer to whether they are 18 or older. Both age answers can continue into Aura. These details are saved to the user's Supabase Auth profile metadata; the age answer is not independently verified.
+
 ## Run locally
 
 1. Install Python 3.
@@ -33,7 +35,7 @@ The app loads Supabase's browser client from jsDelivr only when cloud sign-in is
 
 Without `SUPABASE_URL` and `SUPABASE_ANON_KEY`, Aura uses local-only mode and saves chats in the `data` folder. For local development with Google login and cloud chat history enabled, configure Supabase's redirect URL allow list to include `http://127.0.0.1:3000`, then set `PUBLIC_ORIGIN=http://127.0.0.1:3000` along with your Supabase settings before starting the server. Open the same [http://127.0.0.1:3000](http://127.0.0.1:3000) address after startup. Closing the terminal stops the local server. Do not open `index.html` directly; Aura needs its backend server.
 
-Use the sidebar to switch between Chat, Explore, saved Chats, web Search, and Settings. Use **Your chats** to reopen conversations, **+** to start a new chat, and **×** to delete a chat after confirmation.
+The redesigned workspace includes a responsive navigation drawer, searchable and date-grouped chat history, suggested prompts, voice input, file attachments, and formatted assistant responses with copy and regenerate controls. Open **Prompt Studio** in the sidebar to discover 20 practical templates across Education, Software Development, Business, Writing & Communication, Marketing, Research & Analysis, Productivity, and Creative & Design. Search and filter the collection, save prompts, revisit recent prompts, customize required inputs, inspect the full prompt, then copy it or load it into the chat composer. Saved and recently used prompt IDs are stored in the signed-in user's Supabase Auth profile metadata in cloud mode, and in browser storage in local-only mode. Use the sidebar to switch between Assistant, Prompt Studio, saved Chats, web Search, and Settings. Choose **New chat** (or press **Ctrl/Cmd + K**) to start a conversation; use the history search and delete controls to manage saved chats. Settings let you choose a light appearance and whether Enter sends a message; Shift + Enter inserts a line break.
 
 ## Privacy and limitations
 
