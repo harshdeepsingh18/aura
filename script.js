@@ -57,6 +57,89 @@ const promptPreview = document.getElementById("promptPreview");
 const promptActionFeedback = document.getElementById("promptActionFeedback");
 const promptDetailBookmark = document.getElementById("promptDetailBookmark");
 const promptStudioFeedback = document.getElementById("promptStudioFeedback");
+const languageSelect = document.getElementById("languageSelect");
+const UI_TRANSLATIONS = {
+  hi: {
+    "Assistant": "सहायक", "Prompt Studio": "प्रॉम्प्ट स्टूडियो", "Chats": "चैट", "Search": "खोज", "Settings": "सेटिंग्स",
+    "New chat": "नई चैट", "RECENT CHATS": "हाल की चैट", "Your chats will appear here.": "आपकी चैट यहाँ दिखाई देंगी।",
+    "What can I help you with?": "मैं आपकी किस तरह मदद कर सकता हूँ?", "Your ideas start here.": "आपके विचारों की शुरुआत यहाँ से होती है।",
+    "Ready when you are": "जब आप तैयार हों", "Ask anything, or use voice input.": "कुछ भी पूछें या आवाज़ से बोलें।",
+    "Message Aura...": "Aura को संदेश दें...",
+    "Local storage and service status.": "स्थानीय संग्रहण और सेवा की स्थिति।",
+    "Account & chat storage": "खाता और चैट संग्रहण", "Appearance & preferences": "दिखावट और प्राथमिकताएँ",
+    "Light appearance": "हल्की थीम", "Use a light color palette for Aura.": "Aura के लिए हल्के रंगों का उपयोग करें।",
+    "Press Enter to send": "भेजने के लिए Enter दबाएँ", "Use Shift + Enter to add a new line.": "नई पंक्ति के लिए Shift + Enter दबाएँ।",
+    "Language": "भाषा", "Choose the language for the interface and Aura’s replies.": "इंटरफ़ेस और Aura के जवाबों की भाषा चुनें।",
+    "AI service": "AI सेवा", "Your chats": "आपकी चैट", "Open a saved conversation or start a new one.": "सहेजी गई बातचीत खोलें या नई शुरू करें।",
+    "＋ New chat": "＋ नई चैट", "Search the web": "वेब पर खोजें",
+    "Search Google for current information. Results open in this tab; use Back to return to Aura.": "नई जानकारी के लिए Google पर खोजें। नतीजे इसी टैब में खुलेंगे; Aura पर लौटने के लिए Back दबाएँ।",
+    "Find the right prompt.": "सही प्रॉम्प्ट खोजें।", "Browse all prompts": "सभी प्रॉम्प्ट देखें",
+    "Featured prompts": "चुनिंदा प्रॉम्प्ट", "Trending now": "अभी लोकप्रिय", "Recently used": "हाल ही में उपयोग किए गए",
+    "Saved prompts": "सहेजे गए प्रॉम्प्ट", "Use in Aura Chat": "Aura चैट में उपयोग करें", "Copy Prompt": "प्रॉम्प्ट कॉपी करें",
+    "Welcome back": "वापसी पर स्वागत है", "Continue with Google": "Google के साथ जारी रखें",
+    "Sign in to continue your Aura experience.": "Aura का उपयोग जारी रखने के लिए साइन इन करें।"
+  },
+  es: {
+    "Assistant": "Asistente", "Prompt Studio": "Estudio de prompts", "Chats": "Chats", "Search": "Buscar", "Settings": "Ajustes",
+    "New chat": "Nuevo chat", "RECENT CHATS": "CHATS RECIENTES", "Your chats will appear here.": "Tus chats aparecerán aquí.",
+    "What can I help you with?": "¿En qué puedo ayudarte?", "Your ideas start here.": "Tus ideas empiezan aquí.",
+    "Ready when you are": "Listo cuando quieras", "Ask anything, or use voice input.": "Pregunta lo que quieras o usa la voz.",
+    "Message Aura...": "Escribe a Aura...", "Local storage and service status.": "Almacenamiento local y estado del servicio.",
+    "Account & chat storage": "Cuenta y almacenamiento de chats", "Appearance & preferences": "Apariencia y preferencias",
+    "Light appearance": "Apariencia clara", "Use a light color palette for Aura.": "Usa una paleta clara para Aura.",
+    "Press Enter to send": "Pulsa Enter para enviar", "Use Shift + Enter to add a new line.": "Usa Shift + Enter para añadir una línea.",
+    "Language": "Idioma", "Choose the language for the interface and Aura’s replies.": "Elige el idioma de la interfaz y las respuestas de Aura.",
+    "AI service": "Servicio de IA", "Your chats": "Tus chats", "Open a saved conversation or start a new one.": "Abre una conversación guardada o inicia una nueva.",
+    "＋ New chat": "＋ Nuevo chat", "Search the web": "Buscar en la web",
+    "Search Google for current information. Results open in this tab; use Back to return to Aura.": "Busca información actual en Google. Los resultados se abren en esta pestaña; usa Atrás para volver a Aura.",
+    "Find the right prompt.": "Encuentra el prompt adecuado.", "Browse all prompts": "Ver todos los prompts",
+    "Featured prompts": "Prompts destacados", "Trending now": "Tendencias", "Recently used": "Usados recientemente",
+    "Saved prompts": "Prompts guardados", "Use in Aura Chat": "Usar en Aura Chat", "Copy Prompt": "Copiar prompt",
+    "Welcome back": "Te damos la bienvenida", "Continue with Google": "Continuar con Google",
+    "Sign in to continue your Aura experience.": "Inicia sesión para continuar con Aura."
+  },
+  fr: {
+    "Assistant": "Assistant", "Prompt Studio": "Studio de prompts", "Chats": "Discussions", "Search": "Rechercher", "Settings": "Paramètres",
+    "New chat": "Nouvelle discussion", "RECENT CHATS": "DISCUSSIONS RÉCENTES", "Your chats will appear here.": "Vos discussions apparaîtront ici.",
+    "What can I help you with?": "Comment puis-je vous aider ?", "Your ideas start here.": "Vos idées commencent ici.",
+    "Ready when you are": "Prêt quand vous l’êtes", "Ask anything, or use voice input.": "Posez une question ou utilisez la saisie vocale.",
+    "Message Aura...": "Écrivez à Aura...", "Local storage and service status.": "Stockage local et état du service.",
+    "Account & chat storage": "Compte et stockage des discussions", "Appearance & preferences": "Apparence et préférences",
+    "Light appearance": "Thème clair", "Use a light color palette for Aura.": "Utiliser une palette claire pour Aura.",
+    "Press Enter to send": "Appuyer sur Entrée pour envoyer", "Use Shift + Enter to add a new line.": "Utilisez Maj + Entrée pour passer à la ligne.",
+    "Language": "Langue", "Choose the language for the interface and Aura’s replies.": "Choisissez la langue de l’interface et des réponses d’Aura.",
+    "AI service": "Service d’IA", "Your chats": "Vos discussions", "Open a saved conversation or start a new one.": "Ouvrez une discussion enregistrée ou commencez-en une nouvelle.",
+    "＋ New chat": "＋ Nouvelle discussion", "Search the web": "Rechercher sur le Web",
+    "Search Google for current information. Results open in this tab; use Back to return to Aura.": "Recherchez des informations récentes sur Google. Les résultats s’ouvrent dans cet onglet ; revenez en arrière pour retrouver Aura.",
+    "Find the right prompt.": "Trouvez le bon prompt.", "Browse all prompts": "Parcourir tous les prompts",
+    "Featured prompts": "Prompts à la une", "Trending now": "Tendances", "Recently used": "Récemment utilisés",
+    "Saved prompts": "Prompts enregistrés", "Use in Aura Chat": "Utiliser dans Aura Chat", "Copy Prompt": "Copier le prompt",
+    "Welcome back": "Bon retour", "Continue with Google": "Continuer avec Google",
+    "Sign in to continue your Aura experience.": "Connectez-vous pour continuer avec Aura."
+  },
+  pa: {
+    "Assistant": "ਸਹਾਇਕ", "Prompt Studio": "ਪ੍ਰੌਂਪਟ ਸਟੂਡੀਓ", "Chats": "ਚੈਟਾਂ", "Search": "ਖੋਜੋ", "Settings": "ਸੈਟਿੰਗਾਂ",
+    "New chat": "ਨਵੀਂ ਚੈਟ", "RECENT CHATS": "ਹਾਲੀਆ ਚੈਟਾਂ", "Your chats will appear here.": "ਤੁਹਾਡੀਆਂ ਚੈਟਾਂ ਇੱਥੇ ਦਿਖਾਈ ਦੇਣਗੀਆਂ।",
+    "What can I help you with?": "ਮੈਂ ਤੁਹਾਡੀ ਕੀ ਮਦਦ ਕਰ ਸਕਦਾ ਹਾਂ?", "Your ideas start here.": "ਤੁਹਾਡੇ ਵਿਚਾਰ ਇੱਥੋਂ ਸ਼ੁਰੂ ਹੁੰਦੇ ਹਨ।",
+    "Ready when you are": "ਜਦੋਂ ਤੁਸੀਂ ਤਿਆਰ ਹੋ", "Ask anything, or use voice input.": "ਕੁਝ ਵੀ ਪੁੱਛੋ ਜਾਂ ਆਵਾਜ਼ ਰਾਹੀਂ ਦੱਸੋ।",
+    "Message Aura...": "Aura ਨੂੰ ਸੁਨੇਹਾ ਲਿਖੋ...", "Local storage and service status.": "ਸਥਾਨਕ ਸਟੋਰੇਜ ਅਤੇ ਸੇਵਾ ਦੀ ਸਥਿਤੀ।",
+    "Account & chat storage": "ਖਾਤਾ ਅਤੇ ਚੈਟ ਸਟੋਰੇਜ", "Appearance & preferences": "ਦਿੱਖ ਅਤੇ ਪਸੰਦਾਂ",
+    "Light appearance": "ਹਲਕੀ ਥੀਮ", "Use a light color palette for Aura.": "Aura ਲਈ ਹਲਕੇ ਰੰਗ ਵਰਤੋ।",
+    "Press Enter to send": "ਭੇਜਣ ਲਈ Enter ਦਬਾਓ", "Use Shift + Enter to add a new line.": "ਨਵੀਂ ਲਾਈਨ ਲਈ Shift + Enter ਦਬਾਓ।",
+    "Language": "ਭਾਸ਼ਾ", "Choose the language for the interface and Aura’s replies.": "ਇੰਟਰਫੇਸ ਅਤੇ Aura ਦੇ ਜਵਾਬਾਂ ਲਈ ਭਾਸ਼ਾ ਚੁਣੋ।",
+    "AI service": "AI ਸੇਵਾ", "Your chats": "ਤੁਹਾਡੀਆਂ ਚੈਟਾਂ", "Open a saved conversation or start a new one.": "ਸੰਭਾਲੀ ਗੱਲਬਾਤ ਖੋਲ੍ਹੋ ਜਾਂ ਨਵੀਂ ਸ਼ੁਰੂ ਕਰੋ।",
+    "＋ New chat": "＋ ਨਵੀਂ ਚੈਟ", "Search the web": "ਵੈੱਬ ਖੋਜੋ",
+    "Find the right prompt.": "ਸਹੀ ਪ੍ਰੌਂਪਟ ਲੱਭੋ।", "Browse all prompts": "ਸਾਰੇ ਪ੍ਰੌਂਪਟ ਵੇਖੋ",
+    "Featured prompts": "ਖਾਸ ਪ੍ਰੌਂਪਟ", "Trending now": "ਹੁਣ ਪ੍ਰਚਲਿਤ", "Recently used": "ਹਾਲ ਹੀ ਵਿੱਚ ਵਰਤੇ",
+    "Saved prompts": "ਸੰਭਾਲੇ ਪ੍ਰੌਂਪਟ", "Use in Aura Chat": "Aura ਚੈਟ ਵਿੱਚ ਵਰਤੋ", "Copy Prompt": "ਪ੍ਰੌਂਪਟ ਕਾਪੀ ਕਰੋ",
+    "Welcome back": "ਜੀ ਆਇਆਂ ਨੂੰ", "Continue with Google": "Google ਨਾਲ ਜਾਰੀ ਰੱਖੋ",
+    "Sign in to continue your Aura experience.": "Aura ਵਰਤਣ ਲਈ ਸਾਈਨ ਇਨ ਕਰੋ।"
+  }
+};
+const originalTextNodes = new WeakMap();
+const translatedTextNodes = new WeakMap();
+const originalAttributes = new WeakMap();
+const translatedAttributes = new WeakMap();
 const PROMPT_TEMPLATES = [
   { title: "Learn Anything", category: "Study", description: "Understand a new topic with a clear, engaging lesson.", fields: [["topic", "Topic", "e.g. Photosynthesis"]], prompt: "Teach me about {{topic}} as a clear, engaging tutor. Start with the core idea, build from fundamentals to useful detail, use a memorable example or analogy, and finish with three quick questions to check my understanding. If the topic is broad, organize it into a short learning path." },
   { title: "Solve Problems", category: "Study", description: "Work through a difficult question one step at a time.", fields: [["problem", "Problem to solve", "Paste or describe the problem"], ["level", "Difficulty level", "e.g. High school, university, beginner"]], prompt: "Help me solve this problem at {{level}} level: {{problem}}. First identify what is being asked and the relevant concepts. Then show the reasoning in clear, ordered steps, check the result, and point out one common mistake. Do not skip the explanation." },
@@ -127,6 +210,7 @@ let promptStudioState = { favorites: [], recent: [] };
 let promptStudioOwner = null;
 let promptStudioSaveQueue = Promise.resolve();
 let cachedChats = [];
+let currentLanguage = "en";
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const MAX_CONVERSATION_MESSAGES = 10;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -154,6 +238,96 @@ function setChatAccess(enabled) {
   document.querySelectorAll("[data-command]").forEach((button) => {
     button.disabled = !enabled;
   });
+}
+
+function translateTextNode(node) {
+  if (!node.nodeValue.trim()) return;
+  const previousTranslation = translatedTextNodes.get(node);
+  let original = originalTextNodes.get(node);
+  if (node.nodeValue !== previousTranslation) {
+    original = node.nodeValue;
+    originalTextNodes.set(node, original);
+  }
+  if (original === undefined) return;
+  const leading = original.match(/^\s*/)[0];
+  const trailing = original.match(/\s*$/)[0];
+  const text = original.slice(leading.length, original.length - trailing.length || undefined);
+  const translated = UI_TRANSLATIONS[currentLanguage]?.[text] || text;
+  const nextValue = `${leading}${translated}${trailing}`;
+  translatedTextNodes.set(node, nextValue);
+  if (node.nodeValue !== nextValue) node.nodeValue = nextValue;
+}
+
+function translateAttribute(element, attribute) {
+  const originals = originalAttributes.get(element) || {};
+  const translations = translatedAttributes.get(element) || {};
+  const previousTranslation = translations[attribute];
+  let original = originals[attribute];
+  const current = element.getAttribute(attribute);
+  if (current !== previousTranslation) {
+    original = current;
+    originals[attribute] = original;
+    originalAttributes.set(element, originals);
+  }
+  const translated = UI_TRANSLATIONS[currentLanguage]?.[original] || original;
+  translations[attribute] = translated;
+  translatedAttributes.set(element, translations);
+  if (current !== translated) element.setAttribute(attribute, translated);
+}
+
+function translateInterface(language) {
+  currentLanguage = language === "en" || Object.prototype.hasOwnProperty.call(UI_TRANSLATIONS, language)
+    ? language
+    : "en";
+  document.documentElement.lang = currentLanguage;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    translateTextNode(node);
+    node = walker.nextNode();
+  }
+  document.querySelectorAll("[placeholder], [aria-label], [title]").forEach((element) => {
+    ["placeholder", "aria-label", "title"].forEach((attribute) => {
+      if (element.hasAttribute(attribute)) translateAttribute(element, attribute);
+    });
+  });
+}
+
+const interfaceTranslator = new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => {
+    if (mutation.type === "characterData") {
+      translateTextNode(mutation.target);
+      return;
+    }
+    if (mutation.type === "attributes") {
+      translateAttribute(mutation.target, mutation.attributeName);
+      return;
+    }
+    mutation.addedNodes.forEach((addedNode) => {
+      if (addedNode.nodeType === Node.TEXT_NODE) translateTextNode(addedNode);
+      else if (addedNode.nodeType === Node.ELEMENT_NODE) {
+        const walker = document.createTreeWalker(addedNode, NodeFilter.SHOW_TEXT);
+        let textNode = walker.nextNode();
+        while (textNode) {
+          translateTextNode(textNode);
+          textNode = walker.nextNode();
+        }
+        [addedNode, ...addedNode.querySelectorAll("[placeholder], [aria-label], [title]")].forEach((element) => {
+          ["placeholder", "aria-label", "title"].forEach((attribute) => {
+            if (element.hasAttribute(attribute)) translateAttribute(element, attribute);
+          });
+        });
+      }
+    });
+  });
+});
+interfaceTranslator.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["placeholder", "aria-label", "title"] });
+
+function setStatus(message, loading = false) {
+  statusText.textContent = message;
+  statusText.classList.toggle("is-loading", loading);
+  if (loading) statusText.setAttribute("aria-busy", "true");
+  else statusText.removeAttribute("aria-busy");
 }
 
 function showPage(pageName) {
@@ -279,8 +453,6 @@ function renderPromptTemplates() {
   renderPromptCardGrid(promptTrendingGrid, PROMPT_STUDIO_TRENDING_IDS.map((id) => byId.get(id)).filter(Boolean), "No trending prompts.");
   renderPromptCardGrid(promptRecentGrid, recent.slice(0, 3), "Prompts you use will appear here.");
   renderPromptCardGrid(promptSavedGrid, saved, "Bookmark prompts to build your collection.");
-  document.getElementById("promptRecentSection").hidden = recent.length === 0;
-  document.getElementById("promptSavedSection").hidden = saved.length === 0;
 }
 
 function updatePromptBookmarkButton() {
@@ -488,6 +660,11 @@ function resizeComposer() {
 function loadPreferences() {
   const lightTheme = localStorage.getItem("aura-theme") === "light";
   const enterToSend = localStorage.getItem("aura-enter-to-send") !== "false";
+  const savedLanguage = localStorage.getItem("aura-language") || "en";
+  languageSelect.value = savedLanguage === "en" || Object.prototype.hasOwnProperty.call(UI_TRANSLATIONS, savedLanguage)
+    ? savedLanguage
+    : "en";
+  translateInterface(languageSelect.value);
   document.documentElement.dataset.theme = lightTheme ? "light" : "dark";
   document.getElementById("themeToggle").checked = lightTheme;
   document.getElementById("enterToSendToggle").checked = enterToSend;
@@ -696,6 +873,7 @@ function closeAccountMenu() {
 }
 
 async function initializeAuthentication() {
+  setStatus("Connecting to your Aura account…", true);
   const response = await fetchWithTimeout("/api/config", {}, API_REQUEST_TIMEOUT_MS);
   if (!response.ok) throw new Error("Could not load Aura's sign-in settings.");
   const config = await response.json();
@@ -708,6 +886,7 @@ async function initializeAuthentication() {
     return;
   }
 
+  setStatus("Checking your sign-in…", true);
   profileForm.addEventListener("submit", saveProfile);
   document.getElementById("profileSignOutButton").addEventListener("click", signOut);
   await loadSupabaseSdk();
@@ -715,7 +894,7 @@ async function initializeAuthentication() {
   authClient.auth.onAuthStateChange((_event, session) => {
     window.setTimeout(() => {
       applySession(session).catch((error) => {
-        statusText.textContent = `Could not load your account: ${error.message}`;
+        setStatus(`Could not load your account: ${error.message}`);
       });
     }, 0);
   });
@@ -775,7 +954,7 @@ async function saveProfile(event) {
 
 function showChatLoadError(error) {
   const message = `Could not load your chats: ${error.message}`;
-  statusText.textContent = message;
+  setStatus(message);
   chatMessages.replaceChildren();
   const prompt = document.createElement("p");
   prompt.className = "chat-empty";
@@ -935,7 +1114,9 @@ function setListening(isListening) {
 function speak(message) {
   if ("speechSynthesis" in window) {
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(message));
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = ({ en: "en-US", hi: "hi-IN", es: "es-ES", fr: "fr-FR", pa: "pa-IN" })[languageSelect.value];
+    window.speechSynthesis.speak(utterance);
   }
 }
 
@@ -1269,13 +1450,14 @@ async function loadChats() {
 
 async function initializeChats() {
   setChatAccess(false);
+  setStatus("Loading your saved chats…", true);
   try {
     await loadChats();
     if (!selectedChatId) throw new Error("Could not load or create a chat.");
     setChatAccess(true);
-    statusText.textContent = cloudAuthEnabled
+    setStatus(cloudAuthEnabled
       ? "Your chats are saved to your Aura account."
-      : "Chats are saved on this computer.";
+      : "Chats are saved on this computer.");
   } catch (error) {
     showChatLoadError(error);
     setChatAccess(false);
@@ -1334,7 +1516,7 @@ async function sendChat(rawMessage, isRegeneration = false) {
     const response = await apiFetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatId, messages, attachment })
+      body: JSON.stringify({ chatId, messages, attachment, language: languageSelect.value })
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Aura could not get a response.");
@@ -1361,7 +1543,7 @@ async function sendChat(rawMessage, isRegeneration = false) {
 
 if (SpeechRecognition) {
   recognition = new SpeechRecognition();
-  recognition.lang = navigator.language || "en-US";
+  recognition.lang = ({ en: "en-US", hi: "hi-IN", es: "es-ES", fr: "fr-FR", pa: "pa-IN" })[languageSelect.value] || navigator.language || "en-US";
   recognition.continuous = false;
   recognition.interimResults = false;
 
@@ -1452,6 +1634,14 @@ document.getElementById("themeToggle").addEventListener("change", (event) => {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("aura-theme", theme);
 });
+languageSelect.addEventListener("change", (event) => {
+  const language = event.currentTarget.value;
+  localStorage.setItem("aura-language", language);
+  translateInterface(language);
+  if (recognition) {
+    recognition.lang = ({ en: "en-US", hi: "hi-IN", es: "es-ES", fr: "fr-FR", pa: "pa-IN" })[language];
+  }
+});
 document.getElementById("enterToSendToggle").addEventListener("change", (event) => {
   localStorage.setItem("aura-enter-to-send", String(event.currentTarget.checked));
 });
@@ -1472,4 +1662,5 @@ initializeAuthentication().catch((error) => {
   authMessage.classList.add("auth-message-error");
   authMessage.textContent = `Aura couldn't start: ${error.message}`;
   googleSignInButton.hidden = true;
+  setStatus(`Aura couldn't start: ${error.message}`);
 });

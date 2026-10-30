@@ -277,11 +277,11 @@
           <div class="prompt-collection-heading"><div><p class="prompt-editor-eyebrow">POPULAR WORKFLOWS</p><h2>Trending now</h2></div></div>
           <div class="prompt-template-grid prompt-curated-grid" id="promptTrendingGrid"></div>
         </section>
-        <section class="prompt-collection" id="promptRecentSection" hidden>
+        <section class="prompt-collection" id="promptRecentSection">
           <div class="prompt-collection-heading"><div><p class="prompt-editor-eyebrow">PICK UP WHERE YOU LEFT OFF</p><h2>Recently used</h2></div></div>
           <div class="prompt-template-grid prompt-curated-grid" id="promptRecentGrid"></div>
         </section>
-        <section class="prompt-collection" id="promptSavedSection" hidden>
+        <section class="prompt-collection" id="promptSavedSection">
           <div class="prompt-collection-heading"><div><p class="prompt-editor-eyebrow">YOUR PERSONAL COLLECTION</p><h2>Saved prompts</h2></div></div>
           <div class="prompt-template-grid prompt-curated-grid" id="promptSavedGrid"></div>
         </section>
@@ -357,6 +357,16 @@
       </div>
       <div class="settings-panel settings-preferences">
         <h2>Appearance &amp; preferences</h2>
+        <label class="language-setting" for="languageSelect">
+          <span><strong>Language</strong><small>Choose the language for the interface and Aura’s replies.</small></span>
+          <select id="languageSelect" name="language">
+            <option value="en">English</option>
+            <option value="hi">हिन्दी</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="pa">ਪੰਜਾਬੀ</option>
+          </select>
+        </label>
         <label class="setting-row" for="themeToggle">
           <span><strong>Light appearance</strong><small>Use a light color palette for Aura.</small></span>
           <input id="themeToggle" type="checkbox">

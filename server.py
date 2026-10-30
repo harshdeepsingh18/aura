@@ -39,6 +39,13 @@ HISTORY_LIMIT = 50
 MAX_CHAT_MESSAGES = 12
 MAX_CHAT_MESSAGE_LENGTH = 2000
 MAX_ASSISTANT_MESSAGE_LENGTH = 12000
+RESPONSE_LANGUAGES = {
+    "en": "English",
+    "hi": "Hindi",
+    "es": "Spanish",
+    "fr": "French",
+    "pa": "Punjabi",
+}
 HISTORY_LOCK = threading.Lock()
 CHATS_LOCK = threading.Lock()
 PENDING_ACTIONS_LOCK = threading.Lock()
@@ -629,11 +636,14 @@ def parse_attachment(raw_attachment):
     return {"name": name, "mimeType": mime_type, "data": encoded_data}
 
 
-def generate_gemini_reply(messages, attachment=None):
+def generate_gemini_reply(messages, attachment=None, response_language="en"):
     if not GEMINI_API_KEY:
         raise RuntimeError(
             "Gemini API key is missing. Add GEMINI_API_KEY to the .env file or environment, then restart Aura."
         )
+    language_name = RESPONSE_LANGUAGES.get(response_language)
+    if language_name is None:
+        raise RuntimeError("The selected response language is not supported.")
 
     contents = []
     for index, message in enumerate(messages):
@@ -660,6 +670,7 @@ def generate_gemini_reply(messages, attachment=None):
         f"{SYSTEM_INSTRUCTION} The current local date and time is {local_now}. "
         "Use this exact local date and time when asked; do not guess. "
         "When the latest user message includes an attachment, use its contents to answer the user's question. "
+        f"Respond in {language_name} unless the user explicitly asks for another language. "
         "For app launch requests, choose an installed app from the launch_app function's allowed app list."
     )
     payload = {
@@ -1012,6 +1023,10 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         if not isinstance(messages, list) or not 1 <= len(messages) <= MAX_CHAT_MESSAGES:
             self._send_json(400, {"error": "Send up to 12 chat messages ending with your message."})
             return
+        response_language = body.get("language", "en")
+        if not isinstance(response_language, str) or response_language not in RESPONSE_LANGUAGES:
+            self._send_json(400, {"error": "Choose a supported response language."})
+            return
         chat_id = body.get("chatId") if isinstance(body, dict) else None
         if not isinstance(chat_id, str) or not chat_id:
             self._send_json(400, {"error": "A chat must be selected before sending a message."})
@@ -1076,7 +1091,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             result = (
                 {"reply": "", "action": direct_action}
                 if direct_action
-                else generate_gemini_reply(model_messages, attachment)
+                else generate_gemini_reply(model_messages, attachment, response_language)
             )
         except RuntimeError as error:
             self._send_json(503, {"error": str(error)})
