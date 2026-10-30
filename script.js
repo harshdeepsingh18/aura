@@ -18,6 +18,16 @@ const attachmentPreview = document.getElementById("attachmentPreview");
 const attachmentThumb = document.getElementById("attachmentThumb");
 const attachmentFileName = document.getElementById("attachmentFileName");
 const removeAttachmentButton = document.getElementById("removeAttachmentButton");
+const authGate = document.getElementById("authGate");
+const authMessage = document.getElementById("authMessage");
+const googleSignInButton = document.getElementById("googleSignInButton");
+const workspaceShell = document.getElementById("workspaceShell");
+const signOutButton = document.getElementById("signOutButton");
+const settingsSignOutButton = document.getElementById("settingsSignOutButton");
+const accountName = document.getElementById("accountName");
+const accountDetail = document.getElementById("accountDetail");
+const settingsAccountName = document.getElementById("settingsAccountName");
+const settingsAccountEmail = document.getElementById("settingsAccountEmail");
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const MAX_CONVERSATION_MESSAGES = 10;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -28,6 +38,9 @@ let conversation = [];
 let selectedChatId = null;
 let selectedFile = null;
 let attachmentPreviewUrl = null;
+let cloudAuthEnabled = false;
+let authClient = null;
+let loadedUserId = null;
 
 function setChatAccess(enabled) {
   newChatButton.disabled = !enabled;
@@ -58,7 +71,15 @@ function showPage(pageName) {
 
 async function apiFetch(url, options = {}) {
   const timeoutMs = url === "/api/chat" ? AI_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS;
-  return fetchWithTimeout(url, options, timeoutMs);
+  const headers = new Headers(options.headers || {});
+  if (cloudAuthEnabled) {
+    const { data, error } = await authClient.auth.getSession();
+    if (error) throw new Error(`Could not refresh your sign-in: ${error.message}`);
+    const accessToken = data.session?.access_token;
+    if (!accessToken) throw new Error("Sign in with Google to continue.");
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+  return fetchWithTimeout(url, { ...options, headers }, timeoutMs);
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -74,6 +95,147 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+function loadSupabaseSdk() {
+  if (window.supabase?.createClient) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const sdkScript = document.createElement("script");
+    sdkScript.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+    sdkScript.onload = () => {
+      if (window.supabase?.createClient) resolve();
+      else reject(new Error("The Supabase sign-in library did not load correctly."));
+    };
+    sdkScript.onerror = () => reject(new Error("Could not load the Supabase sign-in library."));
+    document.head.append(sdkScript);
+  });
+}
+
+function updateAccountUI(session) {
+  if (!cloudAuthEnabled) {
+    authGate.hidden = true;
+    workspaceShell.hidden = false;
+    accountName.textContent = "Local chats";
+    accountDetail.textContent = "Saved on this computer";
+    settingsAccountName.textContent = "Local to this computer";
+    settingsAccountEmail.textContent = "Chats are saved in Aura's data folder and are not synced to an online account.";
+    signOutButton.hidden = true;
+    settingsSignOutButton.hidden = true;
+    return;
+  }
+
+  const user = session?.user;
+  const email = user?.email || "";
+  const name = user?.user_metadata?.full_name || user?.user_metadata?.name || email || "Google account";
+  authGate.hidden = Boolean(user);
+  workspaceShell.hidden = !user;
+  googleSignInButton.hidden = Boolean(user);
+  signOutButton.hidden = !user;
+  settingsSignOutButton.hidden = !user;
+  accountName.textContent = user ? name : "Google sign-in";
+  accountDetail.textContent = user ? email : "Sign in to sync your chats";
+  settingsAccountName.textContent = user ? name : "Not signed in";
+  settingsAccountEmail.textContent = user
+    ? "Your conversations are saved to your Aura account and available across devices."
+    : "Sign in with Google to access your saved chats.";
+  if (!user) authMessage.textContent = "Sign in with Google to save and reopen your chats across devices.";
+}
+
+function clearChatView() {
+  selectedChatId = null;
+  conversation = [];
+  chatMessages.replaceChildren();
+  const emptyMessage = document.createElement("p");
+  emptyMessage.className = "chat-empty";
+  emptyMessage.textContent = "Your conversation with Aura will appear here.";
+  chatMessages.append(emptyMessage);
+  [chatList, allChatList].forEach((list) => {
+    list.replaceChildren();
+    const empty = document.createElement("p");
+    empty.className = "sidebar-chat-empty";
+    empty.textContent = "Your chats will appear here.";
+    list.append(empty);
+  });
+}
+
+async function applySession(session) {
+  updateAccountUI(session);
+  if (!cloudAuthEnabled) {
+    await initializeChats();
+    return;
+  }
+  const userId = session?.user?.id || null;
+  if (!userId) {
+    clearChatView();
+    loadedUserId = null;
+    setChatAccess(false);
+    return;
+  }
+  if (loadedUserId === userId) return;
+  clearChatView();
+  loadedUserId = userId;
+  await initializeChats();
+}
+
+async function startGoogleSignIn() {
+  if (!authClient) return;
+  googleSignInButton.disabled = true;
+  authMessage.textContent = "Connecting to Google…";
+  try {
+    const { error } = await authClient.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin }
+    });
+    if (error) throw error;
+  } catch (error) {
+    authMessage.textContent = `Could not sign in with Google: ${error.message}`;
+    googleSignInButton.disabled = false;
+  }
+}
+
+async function signOut() {
+  if (!authClient) return;
+  signOutButton.disabled = true;
+  settingsSignOutButton.disabled = true;
+  try {
+    const { error } = await authClient.auth.signOut({ scope: "local" });
+    if (error) throw error;
+  } catch (error) {
+    statusText.textContent = `Could not sign out: ${error.message}`;
+  } finally {
+    signOutButton.disabled = false;
+    settingsSignOutButton.disabled = false;
+  }
+}
+
+async function initializeAuthentication() {
+  const response = await fetchWithTimeout("/api/config", {}, API_REQUEST_TIMEOUT_MS);
+  if (!response.ok) throw new Error("Could not load Aura's sign-in settings.");
+  const config = await response.json();
+  if (config.authMisconfigured) {
+    throw new Error("Set both SUPABASE_URL and SUPABASE_ANON_KEY before enabling cloud sign-in.");
+  }
+  cloudAuthEnabled = Boolean(config.authEnabled);
+  if (!cloudAuthEnabled) {
+    await applySession(null);
+    return;
+  }
+
+  await loadSupabaseSdk();
+  authClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+  authClient.auth.onAuthStateChange((_event, session) => {
+    window.setTimeout(() => {
+      applySession(session).catch((error) => {
+        statusText.textContent = `Could not load your account: ${error.message}`;
+      });
+    }, 0);
+  });
+  googleSignInButton.addEventListener("click", startGoogleSignIn);
+  signOutButton.addEventListener("click", signOut);
+  settingsSignOutButton.addEventListener("click", signOut);
+  const { data, error } = await authClient.auth.getSession();
+  if (error) throw new Error(`Could not check your Google sign-in: ${error.message}`);
+  await applySession(data.session);
 }
 
 function showChatLoadError(error) {
@@ -94,7 +256,7 @@ function showChatLoadError(error) {
     retryButton.className = "sidebar-chat-item";
     retryButton.type = "button";
     retryButton.textContent = "Retry";
-    retryButton.addEventListener("click", initializeLocalChats);
+    retryButton.addEventListener("click", initializeChats);
     list.append(notice, retryButton);
   });
 }
@@ -463,13 +625,15 @@ async function loadChats() {
   await openChat(chats[0].id);
 }
 
-async function initializeLocalChats() {
+async function initializeChats() {
   setChatAccess(false);
   try {
     await loadChats();
     if (!selectedChatId) throw new Error("Could not load or create a chat.");
     setChatAccess(true);
-    statusText.textContent = "Chats are saved on this computer.";
+    statusText.textContent = cloudAuthEnabled
+      ? "Your chats are saved to your Aura account."
+      : "Chats are saved on this computer.";
   } catch (error) {
     showChatLoadError(error);
     setChatAccess(false);
@@ -588,4 +752,9 @@ checkAiStatus().catch((error) => {
   setupNote.textContent = `Could not check Gemini API status: ${error.message}`;
 });
 
-initializeLocalChats();
+initializeAuthentication().catch((error) => {
+  authGate.hidden = false;
+  workspaceShell.hidden = true;
+  authMessage.textContent = `Aura couldn't start: ${error.message}`;
+  googleSignInButton.hidden = true;
+});

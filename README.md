@@ -1,31 +1,40 @@
 # Aura Voice Assistant
 
-Aura is a local Python web app with AI chat powered by Google's Gemini API. Chats are saved in `data/chats.json` on the computer running Aura. Aura does not provide sign-in, sign-up, cloud chat sync, or shared multi-user storage.
+Aura is a Python web app with AI chat powered by Google's Gemini API. It supports local-only chats or Google sign-in with Supabase-backed chat history that follows the signed-in user across devices.
 
-## Configure Gemini
+## Cloud setup: Google sign-in and synced chats
 
-Add your Gemini API key to `.env`:
+1. Create a Supabase project and run [`supabase/schema.sql`](./supabase/schema.sql) in its SQL Editor. The table uses row-level security so each signed-in user can read and change only their own chats.
+2. In Google Cloud Console, create a **Web application** OAuth client. Add your Aura website origin to **Authorized JavaScript origins**. In Supabase, enable **Authentication → Sign In / Providers → Google**, then enter the Google client ID and client secret. Supabase shows its OAuth callback URL (usually `https://<project-ref>.supabase.co/auth/v1/callback`); add that exact URL to the Google client's **Authorized redirect URIs**.
+3. In Supabase **Authentication → URL Configuration**, set the Site URL to your Aura website origin and add the local development origin and deployed Aura origin to the redirect URL allow list (for example `http://127.0.0.1:3000` and `https://aura.example.com`).
+4. Configure the Aura server environment:
 
-```powershell
-GEMINI_API_KEY=your_gemini_key
-```
+   ```text
+   GEMINI_API_KEY=your_gemini_key
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=your_supabase_publishable_or_anon_key
+   PUBLIC_ORIGIN=https://aura.example.com
+   HOST=0.0.0.0
+   PORT=3000
+   ```
 
-Keep `.env` and your API key private. Aura sends chat prompts and supported attachments to Gemini using the `gemini-3.1-flash-lite` model. Gemini requests time out after 45 seconds and show an error if the service does not respond. API usage may incur charges under your Gemini account. Attachments are limited to 10 MB and are not retained in chat history.
+   `SUPABASE_ANON_KEY` is the project's public anon/publishable key, not its service-role key. Never put a service-role key or `GEMINI_API_KEY` in browser code. `PUBLIC_ORIGIN` must be the exact public origin (scheme and host, no path); the cloud server uses it to reject requests from other sites.
+5. Deploy the project to a Python host that runs `python server.py`, provides HTTPS, and forwards requests to the configured port. Set the environment values in the host's secret/configuration settings, then add the deployed HTTPS origin to both Google and Supabase redirect configuration. The app and its `/api` endpoints must be served from the same origin.
+
+The app loads Supabase's browser client from jsDelivr only when cloud sign-in is configured. Google sign-in is handled by Supabase Auth; Aura's Python server verifies each user's Supabase access token before accessing chat endpoints. Chats are stored in Supabase and protected by database row-level security. Existing local chats in `data/chats.json` or `data/history.json` are not uploaded automatically; they remain on the computer where they were created.
 
 ## Run locally
 
 1. Install Python 3.
 2. Start Aura from its folder:
-   - Windows PowerShell: `$env:PORT = "31389"; py server.py`
-   - Or: `python server.py` with `PORT=31389` set in the environment.
-3. Open `http://127.0.0.1:31389` in Chrome or Edge.
+   - Windows PowerShell: `$env:PORT = "3000"; py server.py`
+   - Or: `python server.py` with `PORT=3000` set in the environment.
+3. Open [http://127.0.0.1:3000](http://127.0.0.1:3000). This address works only on the computer running Aura.
 
-Here, `127.0.0.1` is the local loopback IP address and `31389` is the port; this address works only on the computer running Aura. Aura binds to localhost only and cannot be deployed as a public/shared backend. Keep the terminal open while using Aura; closing it stops the website. Do not open `index.html` directly; Aura needs its backend server.
+Without `SUPABASE_URL` and `SUPABASE_ANON_KEY`, Aura uses local-only mode and saves chats in the `data` folder. For local development with Google login and cloud chat history enabled, configure Supabase's redirect URL allow list to include `http://127.0.0.1:3000`, then set `PUBLIC_ORIGIN=http://127.0.0.1:3000` along with your Supabase settings before starting the server. Open the same [http://127.0.0.1:3000](http://127.0.0.1:3000) address after startup. Closing the terminal stops the local server. Do not open `index.html` directly; Aura needs its backend server.
 
-Use the sidebar to switch between Chat, Explore, saved Chats, web Search, and Settings. Web searches open Google results in the current tab; use the browser's Back button to return to Aura.
+Use the sidebar to switch between Chat, Explore, saved Chats, web Search, and Settings. Use **Your chats** to reopen conversations, **+** to start a new chat, and **×** to delete a chat after confirmation.
 
-## Chats and privacy
+## Privacy and limitations
 
-Use **Your chats** to reopen conversations, **+** to start a new chat, and **×** to delete a chat after confirmation. Chats are local to this computer and are not synced between devices or accounts. Existing local chats in `data/chats.json` (or legacy `data/history.json`) remain available. Existing Supabase cloud chats are not changed, but Aura no longer connects to or syncs them.
-
-Voice input works best in Chrome or Edge. Website and desktop app actions are available only when Aura runs locally. Chat prompts and supported attachments are sent to Google's Gemini API; do not upload sensitive information.
+Google account data is used for sign-in. In cloud mode, chat text and titles are stored in the configured Supabase project under the user's account. Chat prompts and supported attachments are sent to Google's Gemini API; attachments themselves are not retained in chat history. Website and desktop app actions are available only in local-only mode. Do not upload sensitive information.

@@ -193,7 +193,141 @@ def load_setting(name):
     return ""
 
 
+SUPABASE_URL = load_setting("SUPABASE_URL").rstrip("/")
+SUPABASE_ANON_KEY = load_setting("SUPABASE_ANON_KEY")
+PUBLIC_ORIGIN = load_setting("PUBLIC_ORIGIN").rstrip("/")
+SUPABASE_ENABLED = bool(SUPABASE_URL and SUPABASE_ANON_KEY)
+
+
+def is_valid_origin(value, allow_local_http):
+    try:
+        parsed = urlparse(value)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return False
+    if (
+        parsed.scheme not in (("https", "http") if allow_local_http else ("https",))
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in ("", "/")
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        return False
+    return parsed.scheme == "https" or (hostname in LOCAL_HOSTS and port is not None)
+
+
+SUPABASE_MISCONFIGURED = (
+    bool(SUPABASE_URL) != bool(SUPABASE_ANON_KEY)
+    or (bool(SUPABASE_URL) and not is_valid_origin(SUPABASE_URL, allow_local_http=True))
+    or (bool(PUBLIC_ORIGIN) and not is_valid_origin(PUBLIC_ORIGIN, allow_local_http=True))
+)
 GEMINI_API_KEY = load_gemini_api_key()
+SUPABASE_TIMEOUT_SECONDS = 10
+
+
+class SupabaseRequestError(RuntimeError):
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+
+
+def supabase_request(path, access_token, method="GET", payload=None, prefer=None):
+    if SUPABASE_MISCONFIGURED or not SUPABASE_ENABLED:
+        raise SupabaseRequestError(503, "Supabase settings are incomplete or invalid.")
+    headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        headers["Prefer"] = prefer
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(f"{SUPABASE_URL}{path}", data=data, headers=headers, method=method)
+    try:
+        with urlopen(request, timeout=SUPABASE_TIMEOUT_SECONDS) as response:
+            response_body = response.read()
+    except HTTPError as error:
+        message = extract_service_error_message(error.read())
+        raise SupabaseRequestError(error.code, message) from None
+    except (TimeoutError, URLError) as error:
+        raise SupabaseRequestError(503, "Could not connect to Supabase. Check the service settings and connection.") from error
+    if not response_body:
+        return None
+    try:
+        return json.loads(response_body)
+    except json.JSONDecodeError as error:
+        raise SupabaseRequestError(502, "Supabase returned an invalid response.") from error
+
+
+def authenticate_supabase_user(access_token):
+    user = supabase_request("/auth/v1/user", access_token)
+    if not isinstance(user, dict) or not isinstance(user.get("id"), str):
+        raise SupabaseRequestError(401, "Please sign in again.")
+    return user
+
+
+def cloud_chat_from_row(row):
+    return {
+        "id": row["id"],
+        "title": row.get("title", "New chat"),
+        "createdAt": row.get("created_at", ""),
+        "updatedAt": row.get("updated_at", ""),
+        "messages": row.get("messages", []),
+    }
+
+
+def cloud_list_chats(access_token):
+    rows = supabase_request(
+        "/rest/v1/chats?select=id,title,created_at,updated_at,messages&order=updated_at.desc",
+        access_token,
+    )
+    if not isinstance(rows, list):
+        raise SupabaseRequestError(502, "Supabase returned an invalid chat list.")
+    return [cloud_chat_from_row(row) for row in rows if isinstance(row, dict)]
+
+
+def cloud_get_chat(access_token, chat_id):
+    rows = supabase_request(
+        f"/rest/v1/chats?id=eq.{chat_id}&select=id,title,created_at,updated_at,messages",
+        access_token,
+    )
+    if not isinstance(rows, list):
+        raise SupabaseRequestError(502, "Supabase returned an invalid chat.")
+    return cloud_chat_from_row(rows[0]) if rows else None
+
+
+def cloud_save_chat(access_token, user_id, chat):
+    payload = {
+        "id": chat["id"],
+        "user_id": user_id,
+        "title": chat["title"],
+        "created_at": chat["createdAt"],
+        "updated_at": chat["updatedAt"],
+        "messages": chat["messages"],
+    }
+    rows = supabase_request(
+        "/rest/v1/chats?on_conflict=id",
+        access_token,
+        method="POST",
+        payload=payload,
+        prefer="resolution=merge-duplicates,return=representation",
+    )
+    if not isinstance(rows, list) or not rows:
+        raise SupabaseRequestError(502, "Supabase did not save the chat.")
+    return cloud_chat_from_row(rows[0])
+
+
+def cloud_delete_chat(access_token, chat_id):
+    return supabase_request(
+        f"/rest/v1/chats?id=eq.{chat_id}",
+        access_token,
+        method="DELETE",
+        prefer="return=representation",
+    )
 SYSTEM_INSTRUCTION = (
     "You are Aura, a helpful conversational voice assistant. Answer general questions "
     "naturally and clearly. You have no live web access, so be honest about that. "
@@ -612,6 +746,27 @@ def generate_gemini_reply(messages, attachment=None):
 class AuraRequestHandler(BaseHTTPRequestHandler):
     server_version = "Aura/1.0"
 
+    def _send_supabase_error(self, error, operation):
+        if error.status in (401, 403):
+            self._send_json(401, {"error": "Your sign-in has expired. Please sign in again."})
+            return
+        self.log_error("Supabase error while attempting to %s: %s", operation, error)
+        self._send_json(503, {"error": f"Could not {operation}. Check your Supabase configuration and try again."})
+
+    def _require_user(self):
+        if not SUPABASE_ENABLED:
+            return {"id": None}
+        authorization = self.headers.get("Authorization", "")
+        scheme, separator, access_token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not access_token.strip():
+            self._send_json(401, {"error": "Sign in with Google to continue."})
+            return None
+        try:
+            return authenticate_supabase_user(access_token.strip())
+        except SupabaseRequestError as error:
+            self._send_supabase_error(error, "verify your sign-in")
+            return None
+
     def _send_json(self, status, payload):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -621,8 +776,28 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _request_is_local(self):
+    def _request_is_allowed(self):
         request_host = self.headers.get("Host", "").lower()
+        origin = self.headers.get("Origin")
+        if SUPABASE_ENABLED and PUBLIC_ORIGIN:
+            configured_origin = urlparse(PUBLIC_ORIGIN)
+            if request_host != configured_origin.netloc.lower():
+                self._send_json(403, {"error": "Request host is not allowed."})
+                return False
+            if origin:
+                parsed_origin = urlparse(origin)
+                if (
+                    parsed_origin.scheme != configured_origin.scheme
+                    or parsed_origin.netloc.lower() != configured_origin.netloc.lower()
+                    or parsed_origin.path not in ("", "/")
+                    or parsed_origin.params
+                    or parsed_origin.query
+                    or parsed_origin.fragment
+                ):
+                    self._send_json(403, {"error": "Request origin is not allowed."})
+                    return False
+            return True
+
         allowed_hosts = {
             f"127.0.0.1:{PORT}".lower(),
             f"localhost:{PORT}".lower(),
@@ -633,7 +808,6 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             self._send_json(403, {"error": "Aura only accepts local requests."})
             return False
 
-        origin = self.headers.get("Origin")
         if origin:
             parsed_origin = urlparse(origin)
             if (
@@ -672,10 +846,21 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         return body
 
     def do_GET(self):
-        if not self._request_is_local():
+        if not self._request_is_allowed():
             return
 
         route = urlparse(self.path).path
+        if route == "/api/config":
+            self._send_json(
+                200,
+                {
+                    "authEnabled": SUPABASE_ENABLED,
+                    "authMisconfigured": SUPABASE_MISCONFIGURED,
+                    "supabaseUrl": SUPABASE_URL if SUPABASE_ENABLED else None,
+                    "supabaseAnonKey": SUPABASE_ANON_KEY if SUPABASE_ENABLED else None,
+                },
+            )
+            return
         if route == "/api/status":
             self._send_json(
                 200,
@@ -683,6 +868,22 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             )
             return
         if route == "/api/chats":
+            user = self._require_user()
+            if user is None:
+                return
+            if SUPABASE_ENABLED:
+                try:
+                    chats = cloud_list_chats(self.headers.get("Authorization", "").partition(" ")[2].strip())
+                    self._send_json(
+                        200,
+                        {
+                            "chats": chat_summaries(chats),
+                            "activeChat": next(iter(ordered_chats(chats)), None),
+                        },
+                    )
+                except SupabaseRequestError as error:
+                    self._send_supabase_error(error, "load your chats")
+                return
             try:
                 with CHATS_LOCK:
                     chats = read_chats()
@@ -698,9 +899,22 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(500, {"error": "Could not read saved chats."})
             return
         if route.startswith("/api/chats/"):
+            user = self._require_user()
+            if user is None:
+                return
             chat_id = route.removeprefix("/api/chats/")
             if not chat_id or "/" in chat_id:
                 self._send_json(404, {"error": "Chat not found."})
+                return
+            if SUPABASE_ENABLED:
+                try:
+                    chat = cloud_get_chat(self.headers.get("Authorization", "").partition(" ")[2].strip(), chat_id)
+                    if chat is None:
+                        self._send_json(404, {"error": "Chat not found."})
+                        return
+                    self._send_json(200, {"chat": chat})
+                except SupabaseRequestError as error:
+                    self._send_supabase_error(error, "open your chat")
                 return
             try:
                 with CHATS_LOCK:
@@ -741,21 +955,24 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def do_POST(self):
-        if not self._request_is_local():
+        if not self._request_is_allowed():
             return
         route = urlparse(self.path).path
         if route not in ("/api/chat", "/api/actions", "/api/chats"):
             self._send_json(404, {"error": "Not found."})
             return
+        user = self._require_user()
+        if user is None:
+            return
         if route == "/api/chat":
-            self._handle_chat()
+            self._handle_chat(user)
             return
         if route == "/api/chats":
-            self._handle_create_chat()
+            self._handle_create_chat(user)
             return
         self._handle_action()
 
-    def _handle_create_chat(self):
+    def _handle_create_chat(self, user):
         body = self._read_json_body()
         if body is None:
             return
@@ -768,6 +985,15 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             "updatedAt": now,
             "messages": [],
         }
+        if SUPABASE_ENABLED:
+            access_token = self.headers.get("Authorization", "").partition(" ")[2].strip()
+            try:
+                chat = cloud_save_chat(access_token, user["id"], chat)
+                chats = cloud_list_chats(access_token)
+                self._send_json(201, {"chat": chat, "chats": chat_summaries(chats)})
+            except SupabaseRequestError as error:
+                self._send_supabase_error(error, "create a new chat")
+            return
         try:
             with CHATS_LOCK:
                 chats = read_chats()
@@ -778,7 +1004,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             self.log_error("Could not create a local chat.")
             self._send_json(500, {"error": "Could not create a new chat."})
 
-    def _handle_chat(self):
+    def _handle_chat(self, user):
         body = self._read_json_body(MAX_CHAT_REQUEST_BYTES)
         if body is None:
             return
@@ -809,14 +1035,22 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "The most recent chat message must be from you."})
             return
 
-        try:
-            with CHATS_LOCK:
-                chats = read_chats()
-            chat = next((entry for entry in chats if entry.get("id") == chat_id), None)
-        except (OSError, ValueError, json.JSONDecodeError):
-            self.log_error("Could not open local chat for a new message.")
-            self._send_json(500, {"error": "Could not open saved chat."})
-            return
+        access_token = self.headers.get("Authorization", "").partition(" ")[2].strip()
+        if SUPABASE_ENABLED:
+            try:
+                chat = cloud_get_chat(access_token, chat_id)
+            except SupabaseRequestError as error:
+                self._send_supabase_error(error, "open your chat")
+                return
+        else:
+            try:
+                with CHATS_LOCK:
+                    chats = read_chats()
+                chat = next((entry for entry in chats if entry.get("id") == chat_id), None)
+            except (OSError, ValueError, json.JSONDecodeError):
+                self.log_error("Could not open local chat for a new message.")
+                self._send_json(500, {"error": "Could not open saved chat."})
+                return
         if chat is None:
             self._send_json(404, {"error": "This chat no longer exists. Start a new chat and try again."})
             return
@@ -849,7 +1083,10 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             return
         action = result.get("action")
         if action:
-            if action["type"] == "open-url":
+            if SUPABASE_ENABLED:
+                result["reply"] = "Website and desktop app actions are available only when Aura runs locally."
+                result["action"] = None
+            elif action["type"] == "open-url":
                 if webbrowser.open(action["url"], new=2):
                     result["reply"] = f"Opened {action['url']}"
                 else:
@@ -872,23 +1109,30 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             [user_message, {"role": "assistant", "content": result["reply"]}]
         )
         chat["updatedAt"] = now
-        try:
-            with CHATS_LOCK:
-                chats = read_chats()
-                saved_chat = next(
-                    (entry for entry in chats if entry.get("id") == chat_id),
-                    None,
-                )
-                if saved_chat is None:
-                    self._send_json(404, {"error": "This chat no longer exists. Start a new chat and try again."})
-                    return
-                saved_chat.update(chat)
-                write_chats(chats)
-            chat = saved_chat
-        except (OSError, ValueError, json.JSONDecodeError):
-            self.log_error("Could not save local chat.")
-            self._send_json(500, {"error": "Could not save chat."})
-            return
+        if SUPABASE_ENABLED:
+            try:
+                chat = cloud_save_chat(access_token, user["id"], chat)
+            except SupabaseRequestError as error:
+                self._send_supabase_error(error, "save your chat")
+                return
+        else:
+            try:
+                with CHATS_LOCK:
+                    chats = read_chats()
+                    saved_chat = next(
+                        (entry for entry in chats if entry.get("id") == chat_id),
+                        None,
+                    )
+                    if saved_chat is None:
+                        self._send_json(404, {"error": "This chat no longer exists. Start a new chat and try again."})
+                        return
+                    saved_chat.update(chat)
+                    write_chats(chats)
+                chat = saved_chat
+            except (OSError, ValueError, json.JSONDecodeError):
+                self.log_error("Could not save local chat.")
+                self._send_json(500, {"error": "Could not save chat."})
+                return
 
         result["chatId"] = chat_id
         result["chatTitle"] = chat["title"]
@@ -896,6 +1140,9 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         self._send_json(200, result)
 
     def _handle_action(self):
+        if SUPABASE_ENABLED:
+            self._send_json(403, {"error": "Website and desktop app actions are available only when Aura runs locally."})
+            return
         body = self._read_json_body()
         if body is None:
             return
@@ -915,13 +1162,28 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"message": message})
 
     def do_DELETE(self):
-        if not self._request_is_local():
+        if not self._request_is_allowed():
             return
         route = urlparse(self.path).path
         if route.startswith("/api/chats/"):
+            user = self._require_user()
+            if user is None:
+                return
             chat_id = route.removeprefix("/api/chats/")
             if not chat_id or "/" in chat_id:
                 self._send_json(404, {"error": "Chat not found."})
+                return
+            if SUPABASE_ENABLED:
+                access_token = self.headers.get("Authorization", "").partition(" ")[2].strip()
+                try:
+                    deleted = cloud_delete_chat(access_token, chat_id)
+                    if not isinstance(deleted, list) or not deleted:
+                        self._send_json(404, {"error": "Chat not found."})
+                        return
+                    chats = cloud_list_chats(access_token)
+                    self._send_json(200, {"chats": chat_summaries(chats)})
+                except SupabaseRequestError as error:
+                    self._send_supabase_error(error, "delete your chat")
                 return
             try:
                 with CHATS_LOCK:
@@ -957,8 +1219,12 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     if not 1 <= PORT <= 65535:
         raise ValueError("PORT must be a valid TCP port number.")
-    if HOST not in LOCAL_HOSTS:
-        raise ValueError("Aura stores chats locally and must bind to localhost (127.0.0.1).")
+    if HOST not in LOCAL_HOSTS and (
+        not SUPABASE_ENABLED or not PUBLIC_ORIGIN or SUPABASE_MISCONFIGURED
+    ):
+        raise ValueError(
+            "Binding to a public interface requires valid Supabase settings and PUBLIC_ORIGIN."
+        )
 
     server = LocalHTTPServer((HOST, PORT), AuraRequestHandler)
     print(f"Aura is running at http://{HOST}:{PORT}")

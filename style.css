@@ -33,6 +33,44 @@
       align-items: stretch;
       gap: 16px;
     }
+    .workspace-shell[hidden], .auth-gate[hidden] { display: none; }
+    .auth-gate {
+      display: grid;
+      width: min(100%, 440px);
+      min-height: 100vh;
+      place-items: center;
+      margin: 0 auto;
+    }
+    .auth-card {
+      width: 100%;
+      padding: 38px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--panel);
+      text-align: center;
+      box-shadow: 0 28px 100px rgba(0, 0, 0, 0.38);
+    }
+    .auth-card > .sidebar-logo { width: auto; font-size: 42px; }
+    .auth-card h1 { margin: 18px 0 10px; font-size: 2rem; }
+    .auth-card p { color: var(--muted); line-height: 1.6; }
+    .google-sign-in {
+      display: inline-flex;
+      min-height: 48px;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 14px;
+      padding: 0 20px;
+      border: 1px solid rgba(164, 179, 221, 0.25);
+      border-radius: 12px;
+      color: #1d2330;
+      background: #fff;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .google-sign-in:hover { background: #f0f3f8; }
+    .google-sign-in svg { width: 20px; height: 20px; }
+    .auth-card .auth-privacy { margin: 24px 0 0; font-size: 0.8rem; }
     .sidebar {
       position: sticky;
       top: 28px;
@@ -181,6 +219,17 @@
     .provider-sparkle, .storage-icon { width: 25px; font-size: 23px; }
     .provider-card strong, .local-storage-card strong { color: #e0e8fb; font-size: 0.68rem; font-weight: 600; }
     .provider-card small, .local-storage-card small { font-size: 0.59rem; }
+    .sign-out-button {
+      margin-left: auto;
+      padding: 5px 7px;
+      border: 1px solid rgba(91, 122, 178, 0.32);
+      border-radius: 7px;
+      color: #c3cee2;
+      background: rgba(91, 122, 178, 0.12);
+      font-size: 0.62rem;
+      cursor: pointer;
+    }
+    .settings-sign-out { min-height: 38px; padding: 0 12px; }
 
     button, input { font: inherit; }
     button { color: inherit; }
