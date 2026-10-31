@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -212,6 +212,174 @@ def explicit_open_action(command):
         except ValueError:
             return None
     return None
+
+
+def explicit_alarm_request(command):
+    """Handle clear alarm/reminder requests locally instead of relying on model tool choice."""
+    if not re.search(
+        r"\b(?:set|create|make)\s+(?:me\s+)?(?:an?\s+)?(?:alarm|reminder)\b|\bremind\s+me\b|\bwake\s+me\b",
+        command,
+        re.IGNORECASE,
+    ):
+        return None
+
+    now = datetime.now().astimezone()
+    lowered = command.casefold()
+    relative = re.search(r"\bin\s+(\d{1,3})\s*(minutes?|mins?|hours?|hrs?)\b", command, re.IGNORECASE)
+    time_match = None
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2).casefold()
+        alarm_at = now + (timedelta(hours=amount) if unit.startswith(("hour", "hr")) else timedelta(minutes=amount))
+    else:
+        time_match = re.search(r"\b(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\b", command, re.IGNORECASE)
+        if time_match:
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2) or 0)
+            meridiem = time_match.group(3).casefold().replace(".", "")
+            if not 1 <= hour <= 12:
+                return {"reply": "Please give the alarm time in a format like 7:30 AM or 7:30 PM.", "action": None}
+            hour = hour % 12 + (12 if meridiem == "pm" else 0)
+        else:
+            time24 = re.search(r"\b(?:at|for)\s+([01]?\d|2[0-3]):([0-5]\d)\b", command, re.IGNORECASE)
+            if not time24:
+                return {"reply": "What time should I set the alarm for? Please include AM or PM, or use 24-hour time.", "action": None}
+            time_match = time24
+            hour, minute = int(time24.group(1)), int(time24.group(2))
+
+        requested_date = None
+        if re.search(r"\bday after tomorrow\b", lowered):
+            requested_date = (now + timedelta(days=2)).date()
+        elif re.search(r"\btomorrow\b", lowered):
+            requested_date = (now + timedelta(days=1)).date()
+        elif re.search(r"\btoday\b", lowered):
+            requested_date = now.date()
+        else:
+            iso_date = re.search(r"\b(20\d{2})-(\d{1,2})-(\d{1,2})\b", command)
+            dmy_date = re.search(r"\b(\d{1,2})[/.](\d{1,2})[/.](\d{4})\b", command)
+            try:
+                if iso_date:
+                    requested_date = datetime(int(iso_date.group(1)), int(iso_date.group(2)), int(iso_date.group(3))).date()
+                elif dmy_date:
+                    first, second, year = map(int, dmy_date.groups())
+                    day, month = (second, first) if first <= 12 < second else (first, second)
+                    requested_date = datetime(year, month, day).date()
+            except ValueError:
+                return {"reply": "That date doesn't look valid. Please send the alarm date again.", "action": None}
+
+        if requested_date is None:
+            requested_date = now.date()
+        alarm_at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        alarm_at = alarm_at.replace(year=requested_date.year, month=requested_date.month, day=requested_date.day)
+        if alarm_at <= now and not re.search(r"\b(?:today|tomorrow|day after tomorrow|on\s+\d)\b", lowered):
+            alarm_at += timedelta(days=1)
+
+    if alarm_at <= now:
+        return {"reply": "That time has already passed. Please choose a future alarm time.", "action": None}
+
+    title = command.strip()
+    title = re.sub(r"^\s*(?:aura[, :]+)?", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:please\s+)?(?:set|create|make)\s+(?:me\s+)?(?:an?\s+)?(?:alarm|reminder)(?:\s+(?:for|to))?\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:please\s+)?remind\s+me(?:\s+(?:to|about))?\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:(?:at|for)\s+)?\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\s*(?:to|for)?\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:wake\s+me\s+up\s+)?(?:at\s+)?", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+(?:today|tomorrow|day after tomorrow|on\s+\d{1,4}[/.\-]\d{1,2}(?:[/.\-]\d{2,4})?)\b.*$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b20\d{2}-\d{1,2}-\d{1,2}\b", "", title)
+    title = re.sub(r"\b\d{1,2}[/.]\d{1,2}[/.]\d{4}\b", "", title)
+    title = re.sub(r"\s+(?:(?:at|for)\s+)?\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?.*$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:to|for)\s+", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+in\s+\d{1,3}\s*(?:minutes?|mins?|hours?|hrs?)\b.*$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"[.!?]+$", "", title).strip() or "Alarm"
+    action = {"type": "alarm", "title": title[:160], "time": alarm_at.isoformat(timespec="minutes")}
+    return {"reply": f"Ready to set an alarm for {action['title']} at {alarm_at.strftime('%I:%M %p on %B %d')}.", "action": action}
+
+
+def explicit_calendar_request(command):
+    """Create a structured calendar draft for explicit dated task/event requests."""
+    intent = re.search(
+        r"\b(?:add|put|set|schedule|create|book)\b.{0,50}\b(?:task|event|meeting|appointment)\b|"
+        r"\b(?:add|put|set|schedule|create|book)\s+(?:an?\s+)?(?:task|event|meeting|appointment)\b",
+        command,
+        re.IGNORECASE,
+    )
+    if not intent:
+        return None
+
+    now = datetime.now().astimezone()
+    lowered = command.casefold()
+    event_date = None
+    if re.search(r"\bday after tomorrow\b", lowered):
+        event_date = (now + timedelta(days=2)).date()
+    elif re.search(r"\btomorrow\b", lowered):
+        event_date = (now + timedelta(days=1)).date()
+    elif re.search(r"\btoday\b", lowered):
+        event_date = now.date()
+    else:
+        iso_date = re.search(r"\b(20\d{2})-(\d{1,2})-(\d{1,2})\b", command)
+        dmy_date = re.search(r"\b(\d{1,2})[/.](\d{1,2})[/.](\d{4})\b", command)
+        try:
+            if iso_date:
+                event_date = datetime(int(iso_date.group(1)), int(iso_date.group(2)), int(iso_date.group(3))).date()
+            elif dmy_date:
+                first, second, year = map(int, dmy_date.groups())
+                day, month = (second, first) if first <= 12 < second else (first, second)
+                event_date = datetime(year, month, day).date()
+        except ValueError:
+            return {"reply": "That date doesn't look valid. Please send the calendar date again.", "action": None}
+
+    if event_date is None:
+        return {"reply": "What date should I add this to? You can give a date like 14/09/2026.", "action": None}
+
+    has_clock_hint = bool(re.search(r"\b(?:at|from)\s+\d{1,2}\b|\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?", command, re.IGNORECASE))
+    time_match = re.search(r"\b(\d{1,2})(?::([0-5]\d))?\s*(a\.?m\.?|p\.?m\.?)\b", command, re.IGNORECASE)
+    time24 = None if time_match else re.search(r"\b(?:at|from)\s+([01]?\d|2[0-3]):([0-5]\d)\b", command, re.IGNORECASE)
+    if has_clock_hint and not time_match and not time24:
+        return {"reply": "What time should I use? Please include AM or PM, or use 24-hour time.", "action": None}
+
+    all_day = not time_match and not time24
+    if all_day:
+        start = datetime.combine(event_date, datetime.min.time()).replace(tzinfo=now.tzinfo)
+        end = start + timedelta(days=1)
+    else:
+        if time_match:
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2) or 0)
+            meridiem = time_match.group(3).casefold().replace(".", "")
+            if not 1 <= hour <= 12:
+                return {"reply": "Please give the event time in a format like 7:30 AM or 7:30 PM.", "action": None}
+            hour = hour % 12 + (12 if meridiem == "pm" else 0)
+        else:
+            hour, minute = int(time24.group(1)), int(time24.group(2))
+        start = datetime.combine(event_date, datetime.min.time()).replace(
+            hour=hour, minute=minute, tzinfo=now.tzinfo
+        )
+        end = start + timedelta(hours=1)
+
+    title = command.strip()
+    title = re.sub(r"^\s*(?:aura[, :]+)?(?:please\s+)?(?:add|put|set|schedule|create|book)\s+", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:some\s+things?\s+like\s+)?(?:an?\s+|the\s+|my\s+)?(?:task|event|meeting|appointment)\b(?:\s+(?:to|called|named))?\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+(?:on|for|at|from)\s+(?:(?:the\s+)?date\s+)?(?:today|tomorrow|day after tomorrow|\d{1,4}[/.\-]\d{1,2}(?:[/.\-]\d{2,4})?|20\d{2}-\d{1,2}-\d{1,2}).*$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b20\d{2}-\d{1,2}-\d{1,2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{4}\b", "", title)
+    title = re.sub(r"\s+(?:at|from)\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?.*$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:on|for)\s+", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:these|this|the)\s+date\b.*$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"[.!?]+$", "", title).strip() or "Task"
+    if title.casefold() in ("task", "event", "meeting", "appointment", "these date", "this date"):
+        return {"reply": "What should I call the task or event? Please include a short title.", "action": None}
+    action = {
+        "type": "calendar-event",
+        "title": title[:160],
+        "start": event_date.isoformat() if all_day else start.isoformat(timespec="minutes"),
+        "end": end.date().isoformat() if all_day else end.isoformat(timespec="minutes"),
+        "allDay": all_day,
+        "details": "",
+        "location": "",
+    }
+    date_label = event_date.strftime("%B %d, %Y")
+    reply = f"Ready to add {action['title']} to your calendar on {date_label}."
+    if not all_day:
+        reply = f"Ready to add {action['title']} to your calendar on {date_label} at {start.strftime('%I:%M %p')}."
+    return {"reply": reply, "action": action}
 
 
 def load_gemini_api_key():
@@ -707,7 +875,8 @@ def generate_gemini_reply(messages, attachment=None, response_language="en"):
         "For app launch requests, choose an installed app from the launch_app function's allowed app list."
         " For calendar events and alarms, prepare the matching function call only when directly asked, "
         "ask a follow-up question if the date or time is missing or ambiguous, and never say it is set "
-        "until the user approves the action in Aura. Use the local timezone for all dates and times."
+        "until the user approves the action in Aura. Aura can set browser alarms; use the set_alarm function "
+        "instead of claiming you cannot set alarms. Use the local timezone for all dates and times."
     )
     payload = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
@@ -1160,8 +1329,11 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
                 and message["content"].strip()
             ]
             model_messages = conversation_messages[-(MAX_CHAT_MESSAGES - 1):] + [messages[-1]]
-            direct_action = explicit_open_action(messages[-1]["content"])
-            result = (
+            last_user_text = messages[-1]["content"]
+            alarm_request = explicit_alarm_request(last_user_text)
+            calendar_request = explicit_calendar_request(last_user_text) if alarm_request is None else None
+            direct_action = explicit_open_action(last_user_text) if alarm_request is None and calendar_request is None else None
+            result = alarm_request or calendar_request or (
                 {"reply": "", "action": direct_action}
                 if direct_action
                 else generate_gemini_reply(model_messages, attachment, response_language)

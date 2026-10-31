@@ -705,7 +705,7 @@ function loadSupabaseSdk() {
   if (window.supabase?.createClient) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const sdkScript = document.createElement("script");
-    sdkScript.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+    sdkScript.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0";
     sdkScript.onload = () => {
       if (window.supabase?.createClient) resolve();
       else reject(new Error("The Supabase sign-in library did not load correctly."));
@@ -1199,6 +1199,7 @@ function icsDate(date) {
 }
 
 function addCalendarEvent(event) {
+  const allDay = Boolean(event.allDay);
   const start = new Date(event.start);
   const end = new Date(event.end);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
@@ -1207,7 +1208,10 @@ function addCalendarEvent(event) {
   const gcalUrl = new URL("https://calendar.google.com/calendar/render");
   gcalUrl.searchParams.set("action", "TEMPLATE");
   gcalUrl.searchParams.set("text", event.title);
-  gcalUrl.searchParams.set("dates", `${icsDate(start)}/${icsDate(end)}`);
+  const calendarDates = allDay
+    ? `${event.start.replace(/-/g, "")}/${event.end.replace(/-/g, "")}`
+    : `${icsDate(start)}/${icsDate(end)}`;
+  gcalUrl.searchParams.set("dates", calendarDates);
   if (event.details) gcalUrl.searchParams.set("details", event.details);
   if (event.location) gcalUrl.searchParams.set("location", event.location);
   const opened = window.open(gcalUrl.href, "_blank");
@@ -1215,7 +1219,10 @@ function addCalendarEvent(event) {
   const ics = [
     "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Aura//Calendar Event//EN", "BEGIN:VEVENT",
     `UID:${crypto.randomUUID()}@aura.local`, `DTSTAMP:${icsDate(new Date())}`,
-    `DTSTART:${icsDate(start)}`, `DTEND:${icsDate(end)}`, `SUMMARY:${icsEscape(event.title)}`,
+    ...(allDay
+      ? [`DTSTART;VALUE=DATE:${event.start.replace(/-/g, "")}`, `DTEND;VALUE=DATE:${event.end.replace(/-/g, "")}`]
+      : [`DTSTART:${icsDate(start)}`, `DTEND:${icsDate(end)}`]),
+    `SUMMARY:${icsEscape(event.title)}`,
     ...(event.details ? [`DESCRIPTION:${icsEscape(event.details)}`] : []),
     ...(event.location ? [`LOCATION:${icsEscape(event.location)}`] : []),
     "END:VEVENT", "END:VCALENDAR", ""

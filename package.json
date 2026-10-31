@@ -1,0 +1,9 @@
+{
+  "name": "aura-performance-audits",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "audit:lighthouse": "npx --yes lighthouse@13.6.0 http://127.0.0.1:3000 --output=html --output=json --output-path=./reports/aura",
+    "audit:bundle": "node tools/check-bundle-size.mjs"
+  }
+}

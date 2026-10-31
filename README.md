@@ -39,7 +39,18 @@ Without `SUPABASE_URL` and `SUPABASE_ANON_KEY`, Aura uses local-only mode and sa
 
 The redesigned workspace includes a responsive navigation drawer, searchable and date-grouped chat history, suggested prompts, voice input, file attachments, and formatted assistant responses with copy and regenerate controls. Open **Prompt Studio** in the sidebar to discover 20 practical templates across Education, Software Development, Business, Writing & Communication, Marketing, Research & Analysis, Productivity, and Creative & Design. Search and filter the collection, save prompts, revisit recent prompts, customize required inputs, inspect the full prompt, then copy it or load it into the chat composer. Saved and recently used prompt IDs are stored in the signed-in user's Supabase Auth profile metadata in cloud mode, and in browser storage in local-only mode. Use the sidebar to switch between Assistant, Prompt Studio, saved Chats, web Search, and Settings. Choose **New chat** (or press **Ctrl/Cmd + K**) to start a conversation; use the history search and delete controls to manage saved chats. Settings let you choose a light appearance, the interface and AI response language (English, Hindi, Spanish, French, or Punjabi), and whether Enter sends a message; Shift + Enter inserts a line break.
 
-Ask Aura to schedule an event or set an alarm with a date and time. Aura shows a confirmation before acting. Approved calendar events open a prefilled Google Calendar page and download a standard `.ics` file that can be imported into other calendar apps. Approved alarms are saved in this browser and use browser notifications when allowed; Aura must remain open for an alarm to trigger. Alarm storage is local to the browser and is not synced across devices.
+Ask Aura to add a named task or event on a date, for example, “Add a task to call Sam on 14/09/2026.” Date-only tasks are all-day calendar entries; include a time to create a timed event (one hour by default). Aura shows a confirmation before acting. Approved calendar entries open a prefilled Google Calendar page and download a standard `.ics` file that can be imported into other calendar apps. You can also set alarms, for example, “Set an alarm for 7:30 PM” or “Remind me to take medicine tomorrow at 8 AM.” Approved alarms are saved in this browser and use browser notifications when allowed; Aura must remain open for an alarm to trigger. Alarm storage is local to the browser and is not synced across devices.
+
+## Performance audits
+
+Install Node.js 22 or later and Google Chrome to run Lighthouse. Start Aura with `py server.py` in one terminal, then in another terminal run:
+
+```powershell
+npm run audit:lighthouse
+npm run audit:bundle
+```
+
+The Lighthouse HTML and JSON reports are written under `reports/` and are ignored by Git. The default audit target is `http://127.0.0.1:3000`; if Aura runs on another URL, run `npx --yes lighthouse@13.6.0 https://your-aura-domain.example --output=html --output=json --output-path=./reports/aura` instead. The Bundlephobia script checks the pinned Supabase browser SDK version that Aura loads for sign-in. Aura's own `script.js` and `style.css` are plain static files rather than npm bundles, so Lighthouse measures their actual page-load cost.
 
 ## Privacy and limitations
 
