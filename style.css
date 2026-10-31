@@ -242,6 +242,7 @@
     .google-sign-in:active { transform: translateY(0); }
     .google-sign-in:disabled { cursor: wait; opacity: 0.72; }
     .google-sign-in svg { width: 19px; height: 19px; flex: 0 0 auto; }
+    #githubSignInButton { margin-top: 12px; }
     .google-button-arrow { margin-left: auto; color: #687184; font-size: 1.1rem; }
     .auth-divider { display: flex; align-items: center; gap: 12px; margin: 25px 0 0; color: #77829a; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.1em; white-space: nowrap; }
     .auth-divider::before, .auth-divider::after { height: 1px; flex: 1; background: rgba(164, 179, 221, 0.12); content: ""; }

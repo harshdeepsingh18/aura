@@ -65,6 +65,39 @@ AI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "create_calendar_event",
+            "description": "Prepare a calendar event when the user directly asks to schedule or add an event. Return ISO 8601 local start and end times; if no end is specified, assume one hour.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Short event title."},
+                    "start": {"type": "string", "description": "Local date/time in ISO 8601 format, for example 2026-09-14T09:00:00."},
+                    "end": {"type": "string", "description": "Local end date/time in ISO 8601 format."},
+                    "details": {"type": "string", "description": "Optional event details."},
+                    "location": {"type": "string", "description": "Optional event location."},
+                },
+                "required": ["title", "start", "end"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_alarm",
+            "description": "Prepare a local browser alarm when the user directly asks to set an alarm or reminder. Return ISO 8601 local time.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "What the alarm is for."},
+                    "time": {"type": "string", "description": "Local date/time in ISO 8601 format."},
+                },
+                "required": ["title", "time"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "open_website",
             "description": "Propose opening a normal public HTTPS website when directly asked.",
             "parameters": {
@@ -672,6 +705,9 @@ def generate_gemini_reply(messages, attachment=None, response_language="en"):
         "When the latest user message includes an attachment, use its contents to answer the user's question. "
         f"Respond in {language_name} unless the user explicitly asks for another language. "
         "For app launch requests, choose an installed app from the launch_app function's allowed app list."
+        " For calendar events and alarms, prepare the matching function call only when directly asked, "
+        "ask a follow-up question if the date or time is missing or ambiguous, and never say it is set "
+        "until the user approves the action in Aura. Use the local timezone for all dates and times."
     )
     payload = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
@@ -742,10 +778,47 @@ def generate_gemini_reply(messages, attachment=None, response_language="en"):
             if resolved_app:
                 app_id, app_label, _ = resolved_app
                 action = {"type": "launch-app", "app": app_id, "appName": app_label}
+        elif function_call.get("name") == "create_calendar_event":
+            title = arguments.get("title")
+            start = arguments.get("start")
+            end = arguments.get("end")
+            try:
+                start_date = datetime.fromisoformat(start)
+                end_date = datetime.fromisoformat(end)
+                if not isinstance(title, str) or not title.strip() or end_date <= start_date:
+                    raise ValueError
+                action = {
+                    "type": "calendar-event",
+                    "title": title.strip()[:160],
+                    "start": start_date.isoformat(timespec="minutes"),
+                    "end": end_date.isoformat(timespec="minutes"),
+                    "details": str(arguments.get("details", ""))[:1000],
+                    "location": str(arguments.get("location", ""))[:300],
+                }
+            except (TypeError, ValueError):
+                reply_parts.append("I couldn't make a valid calendar entry. Please check the date and time.")
+        elif function_call.get("name") == "set_alarm":
+            title = arguments.get("title")
+            alarm_time = arguments.get("time")
+            try:
+                parsed_time = datetime.fromisoformat(alarm_time)
+                if not isinstance(title, str) or not title.strip():
+                    raise ValueError
+                action = {
+                    "type": "alarm",
+                    "title": title.strip()[:160],
+                    "time": parsed_time.isoformat(timespec="minutes"),
+                }
+            except (TypeError, ValueError):
+                reply_parts.append("I couldn't make a valid alarm. Please check the date and time.")
 
     reply = "\n".join(part.strip() for part in reply_parts if part.strip())
     if action and not reply:
-        if action["type"] == "open-url":
+        if action["type"] == "calendar-event":
+            reply = f"Ready to add {action['title']} to your calendar."
+        elif action["type"] == "alarm":
+            reply = f"Ready to set an alarm for {action['title']}."
+        elif action["type"] == "open-url":
             reply = f"Would you like me to open {action['url']}?"
         else:
             reply = f"Would you like me to open {action['appName']}?"
@@ -770,7 +843,7 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
         authorization = self.headers.get("Authorization", "")
         scheme, separator, access_token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not separator or not access_token.strip():
-            self._send_json(401, {"error": "Sign in with Google to continue."})
+            self._send_json(401, {"error": "Sign in with Google or GitHub to continue."})
             return None
         try:
             return authenticate_supabase_user(access_token.strip())
@@ -1098,7 +1171,9 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
             return
         action = result.get("action")
         if action:
-            if SUPABASE_ENABLED:
+            if action["type"] in ("calendar-event", "alarm"):
+                pass
+            elif SUPABASE_ENABLED:
                 result["reply"] = "Website and desktop app actions are available only when Aura runs locally."
                 result["action"] = None
             elif action["type"] == "open-url":
@@ -1111,7 +1186,8 @@ class AuraRequestHandler(BaseHTTPRequestHandler):
                     result["reply"] = launch_allowed_app(action["app"])
                 except OSError:
                     result["reply"] = f"I couldn't open {action['appName']}."
-            result["action"] = None
+            if action["type"] not in ("calendar-event", "alarm"):
+                result["action"] = None
 
         user_text = messages[-1]["content"].strip()
         now = datetime.now().astimezone().isoformat()

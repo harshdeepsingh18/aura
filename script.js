@@ -28,6 +28,7 @@ const profileError = document.getElementById("profileError");
 const profileSubmit = document.getElementById("profileSubmit");
 const authMessage = document.getElementById("authMessage");
 const googleSignInButton = document.getElementById("googleSignInButton");
+const githubSignInButton = document.getElementById("githubSignInButton");
 const workspaceShell = document.getElementById("workspaceShell");
 const accountControl = document.getElementById("accountControl");
 const accountTrigger = document.getElementById("accountTrigger");
@@ -679,7 +680,7 @@ async function apiFetch(url, options = {}) {
     const { data, error } = await authClient.auth.getSession();
     if (error) throw new Error(`Could not refresh your sign-in: ${error.message}`);
     const accessToken = data.session?.access_token;
-    if (!accessToken) throw new Error("Sign in with Google to continue.");
+    if (!accessToken) throw new Error("Sign in with Google or GitHub to continue.");
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
   return fetchWithTimeout(url, { ...options, headers }, timeoutMs);
@@ -721,10 +722,10 @@ function updateAccountUI(session) {
   const firstName = typeof metadata.first_name === "string" ? metadata.first_name.trim() : "";
   const lastName = typeof metadata.last_name === "string" ? metadata.last_name.trim() : "";
   const hasProfile = Boolean(firstName && lastName && typeof metadata.is_18_or_older === "boolean");
-  const oauthName = [metadata.full_name, metadata.name]
+  const oauthName = [metadata.full_name, metadata.name, metadata.user_name]
     .find((value) => typeof value === "string" && value.trim())?.trim();
   const name = [firstName, lastName].filter(Boolean).join(" ")
-    || oauthName || email || "Google account";
+    || oauthName || email || "Aura account";
   const initials = name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "A";
   accountTrigger.disabled = !user;
   accountTrigger.setAttribute("aria-expanded", "false");
@@ -749,11 +750,13 @@ function updateAccountUI(session) {
   profileGate.hidden = !user || hasProfile;
   workspaceShell.hidden = !user || !hasProfile;
   googleSignInButton.hidden = Boolean(user);
+  githubSignInButton.hidden = Boolean(user);
   if (user && !hasProfile) {
-    const googleName = typeof metadata.full_name === "string"
+    const oauthName = typeof metadata.full_name === "string"
       ? metadata.full_name
-      : typeof metadata.name === "string" ? metadata.name : "";
-    const nameParts = googleName.trim().split(/\s+/).filter(Boolean);
+      : typeof metadata.name === "string" ? metadata.name
+        : typeof metadata.user_name === "string" ? metadata.user_name : "";
+    const nameParts = oauthName.trim().split(/\s+/).filter(Boolean);
     profileFirstName.value = firstName || metadata.given_name || nameParts[0] || "";
     profileLastName.value = lastName || metadata.family_name || nameParts.slice(1).join(" ");
     profileEmail.textContent = email;
@@ -761,15 +764,15 @@ function updateAccountUI(session) {
     const adultAnswer = profileForm.querySelector(`input[name="isAdult"][value="${metadata.is_18_or_older === false ? "no" : "yes"}"]`);
     if (typeof metadata.is_18_or_older === "boolean" && adultAnswer) adultAnswer.checked = true;
   }
-  accountName.textContent = user ? name : "Google sign-in";
+  accountName.textContent = user ? name : "Sign in to Aura";
   accountDetail.textContent = user ? email : "Sign in to sync your chats";
   settingsAccountName.textContent = user ? name : "Not signed in";
   settingsAccountEmail.textContent = user
     ? "Your conversations are saved to your Aura account and available across devices."
-    : "Sign in with Google to access your saved chats.";
+    : "Sign in with Google or GitHub to access your saved chats.";
   if (!user) {
     authMessage.classList.remove("auth-message-error");
-    authMessage.textContent = "Sign in with Google to save and reopen your chats across devices.";
+    authMessage.textContent = "Sign in or create an account with Google or GitHub to save and reopen your chats across devices.";
   }
 }
 
@@ -827,25 +830,30 @@ async function applySession(session) {
   await initializeChats();
 }
 
-async function startGoogleSignIn() {
+async function startOAuthSignIn(provider, button) {
   if (!authClient) return;
-  googleSignInButton.disabled = true;
-  googleSignInButton.setAttribute("aria-busy", "true");
-  googleSignInButton.querySelector(".google-button-label").textContent = "Connecting to Google...";
+  const label = `Continue with ${provider === "github" ? "GitHub" : "Google"}`;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.querySelector(".google-button-label").textContent = `Connecting to ${provider === "github" ? "GitHub" : "Google"}...`;
   authMessage.classList.remove("auth-message-error");
-  authMessage.textContent = "Connecting to Google…";
+  authMessage.textContent = `Connecting to ${provider === "github" ? "GitHub" : "Google"}…`;
   try {
     const { error } = await authClient.auth.signInWithOAuth({
-      provider: "google",
+      provider,
       options: { redirectTo: window.location.origin }
     });
     if (error) throw error;
   } catch (error) {
     authMessage.classList.add("auth-message-error");
-    authMessage.textContent = `Could not sign in with Google: ${error.message}`;
-    googleSignInButton.disabled = false;
-    googleSignInButton.removeAttribute("aria-busy");
-    googleSignInButton.querySelector(".google-button-label").textContent = "Continue with Google";
+    const providerLabel = provider === "github" ? "GitHub" : "Google";
+    const providerError = String(error.message || error);
+    authMessage.textContent = provider === "github" && /unsupported provider|provider is not enabled/i.test(providerError)
+      ? "GitHub sign-in is disabled in Supabase. Enable GitHub under Authentication → Sign In / Providers, add both the Client ID and Client Secret, then save the provider settings."
+      : `Could not continue with ${providerLabel}: ${providerError}`;
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.querySelector(".google-button-label").textContent = label;
   }
 }
 
@@ -898,7 +906,8 @@ async function initializeAuthentication() {
       });
     }, 0);
   });
-  googleSignInButton.addEventListener("click", startGoogleSignIn);
+  googleSignInButton.addEventListener("click", () => startOAuthSignIn("google", googleSignInButton));
+  githubSignInButton.addEventListener("click", () => startOAuthSignIn("github", githubSignInButton));
   accountTrigger.addEventListener("click", () => {
     const isOpen = accountTrigger.getAttribute("aria-expanded") === "true";
     accountMenu.hidden = isOpen;
@@ -913,7 +922,7 @@ async function initializeAuthentication() {
   signOutButton.addEventListener("click", signOut);
   settingsSignOutButton.addEventListener("click", signOut);
   const { data, error } = await authClient.auth.getSession();
-  if (error) throw new Error(`Could not check your Google sign-in: ${error.message}`);
+  if (error) throw new Error(`Could not check your Aura sign-in: ${error.message}`);
   await applySession(data.session);
 }
 
@@ -1127,7 +1136,11 @@ function makeActionPrompt(action, confirmationToken) {
   approveButton.type = "button";
   approveButton.textContent = action.type === "open-url"
     ? `Approve and open ${new URL(action.url).hostname}`
-    : `Approve and open ${action.appName || "the app"}`;
+    : action.type === "launch-app"
+      ? `Approve and open ${action.appName || "the app"}`
+      : action.type === "calendar-event"
+        ? "Add to calendar"
+        : `Set alarm for ${new Date(action.time).toLocaleString()}`;
   const cancelButton = document.createElement("button");
   cancelButton.type = "button";
   cancelButton.className = "cancel-action";
@@ -1155,6 +1168,12 @@ function makeActionPrompt(action, confirmationToken) {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "The app could not be opened.");
         message = data.message;
+      } else if (action.type === "calendar-event") {
+        addCalendarEvent(action);
+        message = `Calendar entry prepared for ${action.title}. Import the downloaded file into your calendar, or save the prefilled Google Calendar event.`;
+      } else if (action.type === "alarm") {
+        await addBrowserAlarm(action);
+        message = `Alarm set for ${new Date(action.time).toLocaleString()}. Keep Aura open for the alarm to ring.`;
       } else {
         throw new Error("Aura cannot perform that action.");
       }
@@ -1170,6 +1189,97 @@ function makeActionPrompt(action, confirmationToken) {
   prompt.append(approveButton, cancelButton);
   return prompt;
 }
+
+function icsEscape(value) {
+  return String(value || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+}
+
+function icsDate(date) {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function addCalendarEvent(event) {
+  const start = new Date(event.start);
+  const end = new Date(event.end);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
+    throw new Error("That calendar date or time is invalid.");
+  }
+  const gcalUrl = new URL("https://calendar.google.com/calendar/render");
+  gcalUrl.searchParams.set("action", "TEMPLATE");
+  gcalUrl.searchParams.set("text", event.title);
+  gcalUrl.searchParams.set("dates", `${icsDate(start)}/${icsDate(end)}`);
+  if (event.details) gcalUrl.searchParams.set("details", event.details);
+  if (event.location) gcalUrl.searchParams.set("location", event.location);
+  const opened = window.open(gcalUrl.href, "_blank");
+  if (opened) opened.opener = null;
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Aura//Calendar Event//EN", "BEGIN:VEVENT",
+    `UID:${crypto.randomUUID()}@aura.local`, `DTSTAMP:${icsDate(new Date())}`,
+    `DTSTART:${icsDate(start)}`, `DTEND:${icsDate(end)}`, `SUMMARY:${icsEscape(event.title)}`,
+    ...(event.details ? [`DESCRIPTION:${icsEscape(event.details)}`] : []),
+    ...(event.location ? [`LOCATION:${icsEscape(event.location)}`] : []),
+    "END:VEVENT", "END:VCALENDAR", ""
+  ].join("\r\n");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+  link.download = `${event.title.replace(/[^\p{L}\p{N} _-]/gu, "").trim() || "Aura event"}.ics`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  if (!opened) throw new Error("The browser blocked Google Calendar. The .ics file was downloaded for import.");
+}
+
+const ALARM_STORAGE_KEY = "aura-browser-alarms";
+const firedAlarmIds = new Set();
+
+function readBrowserAlarms() {
+  try {
+    const alarms = JSON.parse(localStorage.getItem(ALARM_STORAGE_KEY) || "[]");
+    return Array.isArray(alarms) ? alarms.filter((alarm) => alarm && typeof alarm.id === "string" && typeof alarm.time === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function addBrowserAlarm(alarm) {
+  const when = new Date(alarm.time);
+  if (!Number.isFinite(when.getTime()) || when.getTime() <= Date.now()) {
+    throw new Error("Choose a future time for the alarm.");
+  }
+  let notificationPermission = "unsupported";
+  if ("Notification" in window) {
+    notificationPermission = Notification.permission;
+    if (notificationPermission === "default") notificationPermission = await Notification.requestPermission();
+  }
+  const alarms = readBrowserAlarms();
+  alarms.push({ id: crypto.randomUUID(), title: alarm.title, time: when.toISOString() });
+  localStorage.setItem(ALARM_STORAGE_KEY, JSON.stringify(alarms));
+  statusText.textContent = notificationPermission === "granted"
+    ? "Alarm saved. Aura must stay open until it rings."
+    : "Alarm saved. Allow notifications for a visible alert when it rings.";
+}
+
+function checkBrowserAlarms() {
+  const now = Date.now();
+  const alarms = readBrowserAlarms();
+  let changed = false;
+  for (const alarm of alarms) {
+    if (firedAlarmIds.has(alarm.id) || new Date(alarm.time).getTime() > now) continue;
+    firedAlarmIds.add(alarm.id);
+    changed = true;
+    const message = `Alarm: ${alarm.title}`;
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Aura alarm", { body: alarm.title });
+    } else {
+      statusText.textContent = message;
+      speak(message);
+    }
+  }
+  if (changed) localStorage.setItem(ALARM_STORAGE_KEY, JSON.stringify(alarms.filter((alarm) => !firedAlarmIds.has(alarm.id))));
+}
+
+window.setInterval(checkBrowserAlarms, 5000);
 
 function escapeHtml(value) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -1662,5 +1772,6 @@ initializeAuthentication().catch((error) => {
   authMessage.classList.add("auth-message-error");
   authMessage.textContent = `Aura couldn't start: ${error.message}`;
   googleSignInButton.hidden = true;
+  githubSignInButton.hidden = true;
   setStatus(`Aura couldn't start: ${error.message}`);
 });
