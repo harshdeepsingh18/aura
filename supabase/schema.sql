@@ -13,6 +13,7 @@ create index if not exists chats_user_updated_at_idx
   on public.chats (user_id, updated_at desc);
 
 alter table public.chats enable row level security;
+alter table public.chats force row level security;
 
 drop policy if exists chats_select_own on public.chats;
 create policy chats_select_own
@@ -35,4 +36,5 @@ create policy chats_delete_own
   on public.chats for delete to authenticated
   using ((select auth.uid()) = user_id);
 
+revoke all on public.chats from public, anon;
 grant select, insert, update, delete on public.chats to authenticated;

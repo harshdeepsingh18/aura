@@ -2,5 +2,7 @@ data/
 __pycache__/
 *.py[cod]
 .env
+.env.*
+!.env.example
 reports/*
 !reports/.gitkeep
